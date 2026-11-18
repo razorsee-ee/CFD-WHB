@@ -1,0 +1,7 @@
+__pycache__/
+processor*/
+postProcessing/
+VTK/
+log.*
+*.foam
+.plot.pid
