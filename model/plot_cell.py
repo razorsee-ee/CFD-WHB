@@ -31,6 +31,9 @@ def latest(case):
     return max(ts, key=lambda p: float(p.name))
 
 
+# одинаковые шкалы для всех картинок
+U_LEV = np.linspace(0, 20.5, 42)
+T_LEV = np.linspace(400, 710, 63)
 out = sys.argv[1]
 cases = sys.argv[2:]
 fig, axes = plt.subplots(2 * len(cases), 1, figsize=(14, 2.6 * 2 * len(cases)))
@@ -45,10 +48,10 @@ for i, c in enumerate(cases):
     xt, yt = x[tri.triangles], y[tri.triangles]
     edge = np.max(np.hypot(xt - np.roll(xt, 1, 1), yt - np.roll(yt, 1, 1)), axis=1)
     tri.set_mask(edge > 0.012)
-    for j, (f, lab, cm) in enumerate(((np.linalg.norm(U, axis=1), "|U|, м/с", "viridis"),
-                                       (T, "T, °C", "inferno"))):
+    for j, (f, lab, cm, lv) in enumerate(((np.linalg.norm(U, axis=1), "|U|, м/с", "viridis", U_LEV),
+                                           (T, "T, °C", "inferno", T_LEV))):
         ax = axes[2 * i + j]
-        cs = ax.tricontourf(tri, f, 60, cmap=cm)
+        cs = ax.tricontourf(tri, np.clip(f, lv[0], lv[-2]), lv, cmap=cm)
         fig.colorbar(cs, ax=ax, label=lab, pad=0.01)
         ax.set_aspect("equal")
         ax.set_xlim(x.min(), min(x.max(), 1.4))
