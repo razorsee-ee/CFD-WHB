@@ -83,3 +83,28 @@ cd $FOAM_RUN/CFD-WHB && bash run_night.sh
 ```bash
 cat $FOAM_RUN/night_summary.txt
 ```
+
+## Графики хода расчёта и стандартные виды
+
+Один раз поставить matplotlib (если ещё нет):
+```bash
+pacman -S mingw-w64-x86_64-python-numpy mingw-w64-x86_64-python-matplotlib
+```
+
+Следить за идущим расчётом — во **втором** окне MSYS2 (страница в браузере обновляется сама каждые 30 с):
+```bash
+cd $FOAM_RUN/CFD-WHB && bash model/watch.sh $FOAM_RUN/n1
+```
+(`n1` — префикс варианта: сам переключается на заходы n1_1, n1_2, n1_3.) Остановить: Ctrl+C.
+
+Стандартные виды строятся сами в конце каждого захода (`<папка>/views.html`). Вручную:
+```bash
+cd $FOAM_RUN/CFD-WHB && python model/views.py $FOAM_RUN/n1_3
+```
+```bash
+explorer.exe "$(cygpath -w $FOAM_RUN/n1_3/views.html)"
+```
+Для кейсов, посчитанных до появления views.py, сначала записать центры ячеек:
+```bash
+cd $FOAM_RUN/n1_3 && foamPostProcess -func writeCellCentres -latestTime
+```
