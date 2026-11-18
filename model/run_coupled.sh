@@ -33,6 +33,9 @@ for k in $(seq 1 "$NOUT"); do
     )
     "$PY" "$REPO/model/whb_summary.py" "$DIR" > "$DIR/summary.txt" 2>&1
     cat "$DIR/summary.txt"
-    TA=$(cat "$DIR/ta_next.txt" 2>/dev/null)
+    NEXT=$(cat "$DIR/ta_next.txt" 2>/dev/null)
+    # нижняя релаксация температуры пара 50/50 (иначе заходы раскачиваются)
+    OLD=${TA:-413,361,312,270}
+    [ -n "$NEXT" ] && TA=$("$PY" -c "o=[float(x) for x in '$OLD'.split(',')]; n=[float(x) for x in '$NEXT'.split(',')]; print(','.join(f'{(a+b)/2:.1f}' for a,b in zip(o,n)))")
     PREV="$DIR"
 done

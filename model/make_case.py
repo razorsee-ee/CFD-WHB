@@ -590,7 +590,7 @@ endTime         {a.iters};
 deltaT          1;
 
 writeControl    timeStep;
-writeInterval   500;
+writeInterval   {a.iters if a.iters % 500 else 500};
 purgeWrite      2;
 writeFormat     ascii;
 writePrecision  8;
