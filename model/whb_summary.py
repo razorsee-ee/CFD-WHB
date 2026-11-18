@@ -78,7 +78,13 @@ Q_tot = MDOT * CP * (T_IN - T_out)
 p_in = nums(last_row("pressures", "surfaceFieldValue.dat"))[1]
 print(f"Итерация {int(it[0])}: зола на стенках R = {F('wall_R'):g}, налёт на трубах R = {info.get('bundle_R', '0')} м²К/Вт; "
       f"пыль в пучки {float(info.get('dust_frac', 0.2)) * 100:.0f} %; бункеры {float(info.get('hopper_fill', 0)) * 100:.0f} %; "
-      f"поглощение {info.get('absorb', '?')} 1/м; губка {info['scenario']}")
+      f"поглощение {info.get('absorb', '?')} 1/м; газоходы R = {info.get('duct_R', info['wall_R'])}; губка {info['scenario']}")
+for nm, lab, ref in (("T_shaftExit", "Газ внизу вертикального газохода", ""),
+                     ("T_beforeEvap", "Газ перед испарителем (среднее по сечению)", "   (установка ~700 °C)")):
+    try:
+        print(f"{lab}: {nums(last_row(nm, 'surfaceFieldValue.dat'))[1] - 273.15:.0f} °C{ref}")
+    except (IndexError, StopIteration):
+        pass
 print(f"Газ на выходе: {T_out - 273.15:.0f} °C   (установка ~600 °C)")
 print(f"Газ отдал всего: {Q_tot / 1e6:.1f} МВт   Перепад давления вход-выход: {p_in - P_ABS:.0f} Па")
 

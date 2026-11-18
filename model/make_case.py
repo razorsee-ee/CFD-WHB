@@ -28,6 +28,8 @@ ap.add_argument("--bundle_R", type=float, default=0.0,
 ap.add_argument("--dust_frac", type=float, default=0.4,
                 help="доля от 50 т/ч золы, пролетающая первый бункер в пучки")
 ap.add_argument("--hopper_fill", type=float, default=0.10, help="заполнение бункеров золой, доля объёма")
+ap.add_argument("--duct_R", type=float, default=None,
+                help="отложения на стенках газоходов (наклонный + вертикальный), м²·К/Вт; по умолчанию = wall_R")
 ap.add_argument("--wall_R", type=float, default=0.0,
                 help="тепловое сопротивление отложений на мембранных стенках, м²·К/Вт (0 — чистые)")
 ap.add_argument("--bundle_fac", type=float, default=1.0,
@@ -216,7 +218,8 @@ def vertex(x, y, z):
 
 
 hexes = []
-faces_inlet, faces_outlet, faces_ash = [], [], []
+faces_inlet, faces_outlet, faces_ash, faces_duct = [], [], [], []
+DUCT_SIDES = {"incl": (1, 3), "shaft": (1, 3), "col": (3,)}
 for name, quad, (n1, g1), (n2, g2) in blocks:
     front = [vertex(x, +half_w(z), z) for x, z in quad]
     back = [vertex(x, -half_w(z), z) for x, z in quad]
@@ -234,6 +237,11 @@ for name, quad, (n1, g1), (n2, g2) in blocks:
         faces_inlet.append((front[3], front[2], back[2], back[3]))
     if name == "ext":    # грань p1-p2 (выход)
         faces_outlet.append((front[1], front[2], back[2], back[1]))
+    if name in DUCT_SIDES:   # стенки газоходов: боковые грани y = ±W/2 и стенки контура
+        faces_duct.append(tuple(front))
+        faces_duct.append((back[0], back[3], back[2], back[1]))
+        for s_ in DUCT_SIDES[name]:
+            faces_duct.append((front[s_], back[s_], back[(s_ + 1) % 4], front[(s_ + 1) % 4]))
     if name.startswith("hop") and Z_ASH > 0:   # грань p0-p1 (поверхность золы)
         faces_ash.append((front[0], back[0], back[1], front[1]))
 
@@ -267,6 +275,14 @@ boundary
         faces
         (
 {ftxt(faces_outlet)}
+        );
+    }}
+    ductWalls
+    {{
+        type wall;
+        faces
+        (
+{ftxt(faces_duct)}
         );
     }}
     ash
@@ -494,7 +510,7 @@ ASH_BC = {  # поверхность горячей золы в бункерах
 }
 
 
-def field(name, cls, dim, internal, inlet, outlet, walls):
+def field(name, cls, dim, internal, inlet, outlet, walls, duct=None):
     write(f"0/{name}", f"""dimensions      {dim};
 
 internalField   {internal};
@@ -512,6 +528,10 @@ boundaryField
     walls
     {{
 {walls}
+    }}
+    ductWalls
+    {{
+{duct if duct is not None else walls}
     }}
     ash
     {{
@@ -534,13 +554,19 @@ field("p_rgh", "volScalarField", "[1 -1 -2 0 0 0 0]", "uniform 0",
       I("type fixedFluxPressure;\nvalue $internalField;"),
       I("type prghPressure;\np uniform 0;\nvalue $internalField;"),
       I("type fixedFluxPressure;\nvalue $internalField;"))
+def wall_T(R):
+    if R <= 0:
+        return I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};")
+    return I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 2500;\n"
+             f"thicknessLayers ({R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
+             + ("qr qr;\nqrRelaxation 0.2;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};")
+
+
+DUCT_R = a.wall_R if a.duct_R is None else a.duct_R
 field("T", "volScalarField", "[0 0 0 1 0 0 0]", f"uniform {T_IN - 100:.2f}",
       I(f"type fixedValue;\nvalue uniform {T_IN:.2f};"),
       I(f"type inletOutlet;\ninletValue uniform {T_IN - 200:.2f};\nvalue $internalField;"),
-      I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};") if a.wall_R <= 0 else
-      I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 2500;\n"
-        f"thicknessLayers ({a.wall_R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
-        + ("qr qr;\nqrRelaxation 0.2;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};"))
+      wall_T(a.wall_R), wall_T(DUCT_R))
 k0 = 1.5 * (0.05 * U0) ** 2
 eps0 = 0.09 ** 0.75 * k0 ** 1.5 / 0.3
 field("k", "volScalarField", "[0 2 -2 0 0 0 0]", f"uniform {k0:.4g}",
@@ -630,6 +656,38 @@ functions
         patches         (inlet outlet);
         operation       sum;
         fields          (phi);
+    }}
+    T_shaftExit
+    {{
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    timeStep;
+        writeInterval   10;
+        log             false;
+        writeFields     false;
+        select          sampledSurface;
+        sampledSurfaceDict
+        {{
+            type        cutPlane;
+            planeType   pointAndNormal;
+            point       ({g.SHAFT / 2} 0 {g.Z_CEIL + 1.0});
+            normal      (0 0 1);
+            interpolate false;
+        }}
+        operation       areaAverage;
+        fields          (T);
+    }}
+    T_beforeEvap
+    {{
+        $T_shaftExit;
+        sampledSurfaceDict
+        {{
+            type        cutPlane;
+            planeType   pointAndNormal;
+            point       ({g.BUNDLES[0][1] - 0.3} 0 10);
+            normal      (1 0 0);
+            interpolate false;
+        }}
     }}
     outletT
     {{
@@ -779,7 +837,7 @@ runApplication reconstructPar -latestTime
 (case / "case_info.txt").write_text(
     f"MDOT {MDOT}\nCP {CP}\nT_IN {T_IN}\nP_ABS {P_ABS}\nM_GAS {M_GAS}\nwall_R {a.wall_R}\n"
     f"bundle_fac {a.bundle_fac}\nbundle_R {a.bundle_R}\ndust_frac {a.dust_frac}\n"
-    f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nscenario {a.scenario}\n"
+    f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")
