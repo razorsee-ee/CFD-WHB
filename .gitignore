@@ -5,3 +5,4 @@ VTK/
 log.*
 *.foam
 .plot.pid
+.last_case.txt
