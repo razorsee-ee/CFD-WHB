@@ -33,7 +33,7 @@ ap.add_argument("--nt", type=int, default=24, help="ячеек на четвер
 ap.add_argument("--nr", type=int, default=40, help="ячеек по радиусу")
 a = ap.parse_args()
 
-P_ABS = 101325 + 12000
+P_ABS = 112000
 # Состав (пользователь): N2 66.96, CO2 14.12, H2O 16.42, O2 2.50 % об.; свойства смеси при ~650 °C
 M_GAS, CP, MU, PR, K_GAS = 28.73, 1250.0, 3.7e-5, 0.72, 0.064
 T_IN = 700 + 273.15

@@ -13,7 +13,7 @@ import geometry as g
 
 case = Path(sys.argv[1])
 pp = case / "postProcessing"
-P_ABS = 101325 + 12000
+P_ABS = 112000 - 200   # давление на выходе котла, Па абс. (см. make_case.py)
 M_GAS = 28.73
 MDOT = 10149.0 * M_GAS / 3600
 
