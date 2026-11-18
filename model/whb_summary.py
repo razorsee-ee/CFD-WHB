@@ -1,8 +1,10 @@
-"""Сводка расчёта котла: какая доля газа идёт через пучки, температуры, перепад давления.
+"""Сводка расчёта котла: доля газа через пучки, тепло пучков и стенок, температура пара.
 
 python model/whb_summary.py <папка_кейса>
-Читает postProcessing (последние записанные значения). Числа — средние по зоне пучка.
+Мониторы — из postProcessing; тепло пучков — по полям последнего записанного времени
+(T, U, V в ascii) и таблицам htc из case_info.txt.
 """
+import math
 import re
 import sys
 from pathlib import Path
@@ -13,9 +15,13 @@ import geometry as g
 
 case = Path(sys.argv[1])
 pp = case / "postProcessing"
-P_ABS = 112000 - 200   # давление на выходе котла, Па абс. (см. make_case.py)
-M_GAS = 28.73
-MDOT = 10149.0 * M_GAS / 3600
+
+info = {}
+for l in (case / "case_info.txt").read_text(encoding="utf-8").splitlines():
+    k, v = l.split(" ", 1)
+    info[k] = v
+F = lambda k: float(info[k])
+MDOT, CP, T_IN, P_ABS, M_GAS = F("MDOT"), F("CP"), F("T_IN"), F("P_ABS"), F("M_GAS")
 
 
 def last_row(name, fname):
@@ -28,16 +34,80 @@ def nums(row):
     return [float(v) for v in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", row)]
 
 
+def latest_time():
+    ts = [p for p in case.iterdir() if p.is_dir() and re.fullmatch(r"[0-9.e+-]+", p.name) and float(p.name) > 0]
+    return max(ts, key=lambda p: float(p.name)) if ts else None
+
+
+def read_internal(path):
+    txt = path.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"internalField\s+(uniform|nonuniform)", txt)
+    body = txt[m.end():]
+    if m.group(1) == "uniform":
+        return None
+    m2 = re.search(r"(\d+)\s*\(", body)
+    n = int(m2.group(1))
+    body = body[m2.end():]
+    if body.lstrip().startswith("("):
+        vals = re.findall(r"\(([^()]+)\)", body)[:n]
+        return [[float(x) for x in v.split()] for v in vals]
+    return [float(x) for x in body.split(")")[0].split()[:n]]
+
+
+def cell_zones():
+    txt = (case / "constant/polyMesh/cellZones").read_text(encoding="utf-8")
+    zones = {}
+    for m in re.finditer(r"(\w+)\s*\{[^{}]*?cellLabels\s+List<label>\s+(\d+)\s*\(([^)]*)\)", txt, re.S):
+        zones[m.group(1)] = [int(x) for x in m.group(3).split()]
+    return zones
+
+
+def htc(name, u):
+    tab = [tuple(map(float, p.split(":"))) for p in info[f"htc_{name}"].split()]
+    if u <= tab[0][0]:
+        return tab[0][1]
+    for (u0, h0), (u1, h1) in zip(tab, tab[1:]):
+        if u <= u1:
+            return h0 + (h1 - h0) * (u - u0) / (u1 - u0)
+    return tab[-1][1]
+
+
 it = nums(last_row("outletT", "surfaceFieldValue.dat"))
-print(f"Итерация {int(it[0])}")
-print(f"Температура газа на выходе (по расходу): {it[1] - 273.15:.0f} °C")
+T_out = it[1]
+Q_tot = MDOT * CP * (T_IN - T_out)
 p_in = nums(last_row("pressures", "surfaceFieldValue.dat"))[1]
-print(f"Давление на входе выше, чем на выходе, на: {p_in - P_ABS:.0f} Па")
+print(f"Итерация {int(it[0])}   (стенки: отложения R = {F('wall_R'):g} м²К/Вт; пучки: множитель α {F('bundle_fac'):g}; "
+      f"губка {info['scenario']})")
+print(f"Газ на выходе: {T_out - 273.15:.0f} °C   (установка ~600 °C)")
+print(f"Газ отдал всего: {Q_tot / 1e6:.1f} МВт   Перепад давления вход-выход: {p_in - P_ABS:.0f} Па")
+
 A = g.BUNDLE_DEPTH * g.W
-print("\nПучок   T газа, °C   Ux, м/с   доля газа через пучок")
+t = latest_time()
+Qb = {}
+if t is not None and (t / "Vc").exists():
+    T, U, V = read_internal(t / "T"), read_internal(t / "U"), read_internal(t / "Vc")
+    Z = cell_zones()
+    for n, _, _ in g.BUNDLES:
+        Ta, Av = F(f"Ta_{n}"), F(f"Av_{n}")
+        Qb[n] = sum(htc(n, math.sqrt(sum(c * c for c in U[i]))) * Av * (T[i] - Ta) * V[i] for i in Z[n])
+print("\nПучок   T газа, °C   Ux, м/с   доля газа через пучок   тепло, МВт")
 for n, _, _ in g.BUNDLES:
     v = nums(last_row(f"{n}_T", "volFieldValue.dat"))
-    T, ux = v[1], v[2]
-    rho = P_ABS * M_GAS / (8314 * T)
-    print(f"{n:5s} {T - 273.15:10.0f} {ux:10.2f} {rho * ux * A / MDOT * 100:12.0f} %")
+    Tz, ux = v[1], v[2]
+    rho = P_ABS * M_GAS / (8314 * Tz)
+    q = f"{Qb[n] / 1e6:8.2f}" if n in Qb else "   —"
+    print(f"{n:5s} {Tz - 273.15:10.0f} {ux:10.2f} {rho * ux * A / MDOT * 100:14.0f} %        {q}")
+if Qb:
+    Q_sh = sum(Qb[n] for n in Qb if n != "EVAP")
+    print(f"\nПароперегреватели: {Q_sh / 1e6:.2f} МВт   (установка ~7.0 МВт: 50 т/ч, 250 -> 440 °C)")
+    print(f"Испаритель: {Qb['EVAP'] / 1e6:.2f} МВт   Стенки (остаток): {(Q_tot - sum(Qb.values())) / 1e6:.1f} МВт")
+    # температуры пара по ступеням при 50 т/ч (противоток: пар входит в SH4)
+    m_s, cp_s = 50000 / 3600, 2670.0
+    Ts = 250.0
+    out = []
+    for n in ("SH4", "SH3", "SH2", "SH1"):
+        Ts_in = Ts
+        Ts += Qb[n] / (m_s * cp_s)
+        out.append(f"{n}: {Ts_in:.0f}->{Ts:.0f}")
+    print("Пар (50 т/ч, cp ~2.67 кДж/кг·К): " + ", ".join(out) + " °C")
 print("\nДоля < 100 % — остальной газ обходит пучок (снизу, через бункер).")

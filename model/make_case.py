@@ -23,6 +23,11 @@ ap.add_argument("--res", type=float, default=0.3, help="размер ячейк�
 ap.add_argument("--ny", type=int, default=12, help="ячеек по ширине")
 ap.add_argument("--np", type=int, default=4, help="число процессов")
 ap.add_argument("--iters", type=int, default=3000)
+ap.add_argument("--wall_R", type=float, default=0.0,
+                help="тепловое сопротивление отложений на мембранных стенках, м²·К/Вт (0 — чистые)")
+ap.add_argument("--bundle_fac", type=float, default=1.0,
+                help="множитель к α газа в пучках (загрязнение труб и неопределённость)")
+ap.add_argument("--ta", default="", help="температуры пара SH1,SH2,SH3,SH4, °C (по умолчанию 413,361,312,270)")
 ap.add_argument("--absorb", type=float, default=0.6,
                 help="коэффициент поглощения газа+пыли для излучения P1, 1/м (0 — без излучения в объёме)")
 ap.add_argument("--scenario", choices=["A", "B"], default="B",
@@ -87,6 +92,10 @@ TG_RAD = {"EVAP": 740, "SH1": 700, "SH2": 670, "SH3": 640, "SH4": 610}
 
 # Температура «окружения» для пучков: пар (противоток 250 -> 440 °C, поровну по ступеням)
 TA = {"EVAP": 250, "SH4": 270, "SH3": 312, "SH2": 361, "SH1": 413}
+if a.ta:
+    for _n, _t in zip(("SH1", "SH2", "SH3", "SH4"), a.ta.split(",")):
+        TA[_n] = float(_t)
+K_ASH = 0.2           # теплопроводность отложений, Вт/(м·К) — толщина слоя = wall_R * K_ASH
 
 # ---------------------------------------------------------------- секции по x
 # Каждая секция: (длина, число ячеек). Границы пучков = границы секций.
@@ -254,7 +263,7 @@ def htc_table():
     for U in [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30]:
         Re = (U / sigma) * g.D_TUBE / nu
         Nu = 0.27 * Re ** 0.63 * PR ** 0.36 if Re > 0 else 0
-        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE) * H_FAC))
+        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE) * H_FAC * a.bundle_fac))
     return rows
 
 
@@ -282,6 +291,9 @@ def h_rad(name):
     return 5.67e-8 * (eps_w + 1) / 2 * e * (Tg ** 4 - Tw ** 4) / (Tg - Tw), eg, ed
 
 
+TAB = {}
+
+
 def tab_for(name):
     """Таблица htc(U): конвекция (калибровка) + излучение газа и пыли; для пароперегревателей
     последовательно — сопротивление пара."""
@@ -289,6 +301,7 @@ def tab_for(name):
     rows = [(u, h + hr) for u, h in htc_table()]
     if name != "EVAP":
         rows = [(u, 1 / (1 / h + 1 / H_STEAM)) for u, h in rows]
+    TAB[name] = rows
     return "\n".join(f"                ({u:g} {h:.4g})" for u, h in rows)
 
 models = []
@@ -459,7 +472,10 @@ field("p_rgh", "volScalarField", "[1 -1 -2 0 0 0 0]", "uniform 0",
 field("T", "volScalarField", "[0 0 0 1 0 0 0]", f"uniform {T_IN - 100:.2f}",
       I(f"type fixedValue;\nvalue uniform {T_IN:.2f};"),
       I(f"type inletOutlet;\ninletValue uniform {T_IN - 200:.2f};\nvalue $internalField;"),
-      I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};"))
+      I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};") if a.wall_R <= 0 else
+      I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 5000;\n"
+        f"thicknessLayers ({a.wall_R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
+        + ("qr qr;\nqrRelaxation 0.5;\n" if a.absorb > 0 else "") + f"relaxation 0.5;\nvalue uniform {T_WALL:.2f};"))
 k0 = 1.5 * (0.05 * U0) ** 2
 eps0 = 0.09 ** 0.75 * k0 ** 1.5 / 0.3
 field("k", "volScalarField", "[0 2 -2 0 0 0 0]", f"uniform {k0:.4g}",
@@ -511,7 +527,7 @@ deltaT          1;
 writeControl    timeStep;
 writeInterval   500;
 purgeWrite      2;
-writeFormat     binary;
+writeFormat     ascii;
 writePrecision  8;
 writeCompression off;
 timeFormat      general;
@@ -521,6 +537,21 @@ runTimeModifiable true;
 functions
 {{
     #includeFunc residuals(p_rgh, U, h, k, epsilon)
+
+    cellVolumes
+    {{
+        type            writeCellVolumes;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    writeTime;
+    }}
+    wallQ
+    {{
+        type            wallHeatFlux;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    writeTime;
+        patches         (walls);
+        log             false;
+    }}
 
     inletOutlet
     {{
@@ -679,6 +710,13 @@ runParallel foamRun
 runApplication reconstructPar -latestTime
 """, encoding="utf-8", newline="\n")
 (case / "Allrun").chmod(0o755)
+
+(case / "case_info.txt").write_text(
+    f"MDOT {MDOT}\nCP {CP}\nT_IN {T_IN}\nP_ABS {P_ABS}\nM_GAS {M_GAS}\nwall_R {a.wall_R}\n"
+    f"bundle_fac {a.bundle_fac}\nscenario {a.scenario}\n"
+    + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
+    + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
+    encoding="utf-8")
 
 # сводка
 print(f"m = {MDOT:.1f} кг/с, U в газоходе ~ {U0:.1f} м/с")
