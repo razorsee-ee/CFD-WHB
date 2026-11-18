@@ -70,3 +70,16 @@ cd $FOAM_RUN/CFD-WHB && bash run_batch.sh
 ```bash
 cat $FOAM_RUN/batch_summary.txt
 ```
+
+## Ночная серия (сетка 0.15 м, пар увязан, 3 варианта отложений)
+
+```bash
+cd $FOAM_RUN/CFD-WHB && git checkout -- . && git pull
+```
+```bash
+cd $FOAM_RUN/CFD-WHB && bash run_night.sh
+```
+Итог:
+```bash
+cat $FOAM_RUN/night_summary.txt
+```
