@@ -23,13 +23,18 @@ ap.add_argument("--res", type=float, default=0.3, help="размер ячейк�
 ap.add_argument("--ny", type=int, default=12, help="ячеек по ширине")
 ap.add_argument("--np", type=int, default=4, help="число процессов")
 ap.add_argument("--iters", type=int, default=3000)
+ap.add_argument("--bundle_R", type=float, default=0.0,
+                help="тепловое сопротивление налёта на трубах пучков, м²·К/Вт")
+ap.add_argument("--dust_frac", type=float, default=0.4,
+                help="доля от 50 т/ч золы, пролетающая первый бункер в пучки")
+ap.add_argument("--hopper_fill", type=float, default=0.10, help="заполнение бункеров золой, доля объёма")
 ap.add_argument("--wall_R", type=float, default=0.0,
                 help="тепловое сопротивление отложений на мембранных стенках, м²·К/Вт (0 — чистые)")
 ap.add_argument("--bundle_fac", type=float, default=1.0,
                 help="множитель к α газа в пучках (загрязнение труб и неопределённость)")
 ap.add_argument("--ta", default="", help="температуры пара SH1,SH2,SH3,SH4, °C (по умолчанию 413,361,312,270)")
-ap.add_argument("--absorb", type=float, default=0.6,
-                help="коэффициент поглощения газа+пыли для излучения P1, 1/м (0 — без излучения в объёме)")
+ap.add_argument("--absorb", type=float, default=None,
+                help="коэффициент поглощения газа+пыли для P1, 1/м (по умолчанию — из пыли; 0 — без излучения)")
 ap.add_argument("--scenario", choices=["A", "B"], default="B",
                 help="A — по корреляциям (Гаддис, Жукаускас); B — по CFD куска пучка (docs/CALIBRATION.md)")
 a = ap.parse_args()
@@ -78,15 +83,20 @@ KMOL_H = 10149.0
 MDOT = KMOL_H * M_GAS / 3600    # кг/с (~81.0)
 T_IN = 745 + 273.15            # газ из циклонов 740–750 °C (пользователь)
 T_WALL = 250 + 273.15
-CP = 1250.0
+CP_GAS = 1250.0
 MU = 3.7e-5
 PR = 0.72
 K_GAS = 0.064                   # теплопроводность газа ~650 °C, Вт/(м·К)
 
 # Пыль, идущая через пучки: 20 % от 50 т/ч (пользователь), частицы ~20 мкм (допущение)
-DUST_KG_H = 0.2 * 50000
+DUST_KG_H = a.dust_frac * 50000
 D_DUST = 20e-6
 RHO_DUST = 2500.0
+CP_DUST = 850.0
+CP = CP_GAS + DUST_KG_H / 3600 / MDOT * CP_DUST     # теплоёмкость потока газ + пыль на 1 кг газа
+if a.absorb is None:
+    _c = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * 923.15)))   # кг/м³ при ~650 °C
+    a.absorb = round(0.16 + 1.5 * _c / (RHO_DUST * D_DUST), 3)        # газ ~0.16 1/м + пыль
 # Ожидаемая средняя температура газа в пучке, °C (для излучения; уточнять по расчёту)
 TG_RAD = {"EVAP": 740, "SH1": 700, "SH2": 670, "SH3": 640, "SH4": 610}
 
@@ -141,6 +151,38 @@ Zc, Zh = g.Z_CEIL, g.Z_HOP
 xo_end = g.X_OUT + g.OUTLET_EXT
 split1 = g.HOP1_BOT[0] + (g.HOP1_BOT[1] - g.HOP1_BOT[0]) * g.SHAFT / g.X_APEX
 
+
+def hopper_fill_z(frac):
+    """Высота слоя золы, занимающего долю frac объёма бункера 1 (площадь сечения ~ Lx(z)·Wy(z))."""
+    def area(z):
+        lx = (g.HOP1_BOT[1] - g.HOP1_BOT[0]) + (g.X_APEX - (g.HOP1_BOT[1] - g.HOP1_BOT[0])) * z / Zh
+        wy = g.W_HOP_BOT + (g.W - g.W_HOP_BOT) * z / Zh
+        return lx * wy
+    zs = [Zh * i / 2000 for i in range(2001)]
+    vol = [0.0]
+    for z0, z1 in zip(zs, zs[1:]):
+        vol.append(vol[-1] + 0.5 * (area(z0) + area(z1)) * (z1 - z0))
+    for z, v in zip(zs, vol):
+        if v >= frac * vol[-1]:
+            return z
+    return 0.0
+
+
+Z_ASH = hopper_fill_z(a.hopper_fill) if a.hopper_fill > 0 else 0.0
+nz_h = n_cells(Zh - Z_ASH)
+
+
+def at_z(p_low, p_high, z):
+    """Точка на отрезке p_low -> p_high на высоте z."""
+    t = (z - p_low[1]) / (p_high[1] - p_low[1])
+    return (p_low[0] + t * (p_high[0] - p_low[0]), z)
+
+
+def hop(q):
+    """Бункерный блок, обрезанный снизу по уровню золы."""
+    p0, p1, p2, p3 = q
+    return (at_z(p0, p3, Z_ASH), at_z(p1, p2, Z_ASH), p2, p3)
+
 blocks = [
     # имя, (p0, p1, p2, p3) против часовой в (x, z); (n1, grading1), (n2, grading2)
     ("incl", (g.BEND_INNER, g.BEND_OUTER, g.INLET_OUTER, g.INLET_INNER), (ns, "1"), (n_incl, "1")),
@@ -150,9 +192,9 @@ blocks = [
     ("right", ((g.X_APEX, Zh), (g.X_RIGHT, Zh), (g.X_RIGHT, Zc), (g.X_APEX, Zc)), grading_spec(sec_right), (nz_b, "1")),
     ("trans", ((g.X_RIGHT, Zh), (g.X_OUT, g.Z_OUT_BOT), (g.X_OUT, g.Z_OUT_TOP), (g.X_RIGHT, Zc)), (n_out, "1"), (nz_b, "1")),
     ("ext", ((g.X_OUT, g.Z_OUT_BOT), (xo_end, g.Z_OUT_BOT), (xo_end, g.Z_OUT_TOP), (g.X_OUT, g.Z_OUT_TOP)), (n_ext, "1"), (nz_b, "1")),
-    ("hop1a", ((g.HOP1_BOT[0], 0), (split1, 0), (g.SHAFT, Zh), (0, Zh)), (ns, "1"), (nz_h, "1")),
-    ("hop1b", ((split1, 0), (g.HOP1_BOT[1], 0), (g.X_APEX, Zh), (g.SHAFT, Zh)), grading_spec(sec_left), (nz_h, "1")),
-    ("hop2", ((g.HOP2_BOT[0], 0), (g.HOP2_BOT[1], 0), (g.X_RIGHT, Zh), (g.X_APEX, Zh)), grading_spec(sec_right), (nz_h, "1")),
+    ("hop1a", hop(((g.HOP1_BOT[0], 0), (split1, 0), (g.SHAFT, Zh), (0, Zh))), (ns, "1"), (nz_h, "1")),
+    ("hop1b", hop(((split1, 0), (g.HOP1_BOT[1], 0), (g.X_APEX, Zh), (g.SHAFT, Zh))), grading_spec(sec_left), (nz_h, "1")),
+    ("hop2", hop(((g.HOP2_BOT[0], 0), (g.HOP2_BOT[1], 0), (g.X_RIGHT, Zh), (g.X_APEX, Zh))), grading_spec(sec_right), (nz_h, "1")),
 ]
 
 
@@ -174,7 +216,7 @@ def vertex(x, y, z):
 
 
 hexes = []
-faces_inlet, faces_outlet = [], []
+faces_inlet, faces_outlet, faces_ash = [], [], []
 for name, quad, (n1, g1), (n2, g2) in blocks:
     front = [vertex(x, +half_w(z), z) for x, z in quad]
     back = [vertex(x, -half_w(z), z) for x, z in quad]
@@ -192,6 +234,8 @@ for name, quad, (n1, g1), (n2, g2) in blocks:
         faces_inlet.append((front[3], front[2], back[2], back[3]))
     if name == "ext":    # грань p1-p2 (выход)
         faces_outlet.append((front[1], front[2], back[2], back[1]))
+    if name.startswith("hop") and Z_ASH > 0:   # грань p0-p1 (поверхность золы)
+        faces_ash.append((front[0], back[0], back[1], front[1]))
 
 vtxt = "\n".join(f"    ({x:.15g} {y:.15g} {z:.15g})" for x, y, z in verts)
 ftxt = lambda fl: "\n".join(f"            ({' '.join(map(str, f))})" for f in fl)
@@ -223,6 +267,14 @@ boundary
         faces
         (
 {ftxt(faces_outlet)}
+        );
+    }}
+    ash
+    {{
+        type wall;
+        faces
+        (
+{ftxt(faces_ash)}
         );
     }}
 );
@@ -298,7 +350,7 @@ def tab_for(name):
     """Таблица htc(U): конвекция (калибровка) + излучение газа и пыли; для пароперегревателей
     последовательно — сопротивление пара."""
     hr = h_rad(name)[0]
-    rows = [(u, h + hr) for u, h in htc_table()]
+    rows = [(u, 1 / (1 / (h + hr) + a.bundle_R)) for u, h in htc_table()]   # налёт на трубах
     if name != "EVAP":
         rows = [(u, 1 / (1 / h + 1 / H_STEAM)) for u, h in rows]
     TAB[name] = rows
@@ -433,6 +485,15 @@ write("constant/pRef", f"dimensions      [1 -1 -2 0 0 0 0];\nvalue           {P_
       cls="uniformDimensionedScalarField")
 
 # ---------------------------------------------------------------- начальные и граничные условия
+ASH_BC = {  # поверхность горячей золы в бункерах: без теплообмена (и без излучения)
+    "U": "type noSlip;", "p": "type calculated;\nvalue $internalField;",
+    "p_rgh": "type fixedFluxPressure;\nvalue $internalField;", "T": "type zeroGradient;",
+    "k": "type kqRWallFunction;\nvalue $internalField;", "epsilon": "type epsilonWallFunction;\nvalue $internalField;",
+    "nut": "type nutkWallFunction;\nvalue uniform 0;",
+    "alphat": "type compressible::alphatWallFunction;\nPrt 0.85;\nvalue uniform 0;", "G": "type zeroGradient;",
+}
+
+
 def field(name, cls, dim, internal, inlet, outlet, walls):
     write(f"0/{name}", f"""dimensions      {dim};
 
@@ -451,6 +512,10 @@ boundaryField
     walls
     {{
 {walls}
+    }}
+    ash
+    {{
+{I(ASH_BC[name])}
     }}
 }}
 """, cls=cls)
@@ -473,7 +538,7 @@ field("T", "volScalarField", "[0 0 0 1 0 0 0]", f"uniform {T_IN - 100:.2f}",
       I(f"type fixedValue;\nvalue uniform {T_IN:.2f};"),
       I(f"type inletOutlet;\ninletValue uniform {T_IN - 200:.2f};\nvalue $internalField;"),
       I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};") if a.wall_R <= 0 else
-      I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 5000;\n"
+      I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 2500;\n"
         f"thicknessLayers ({a.wall_R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
         + ("qr qr;\nqrRelaxation 0.2;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};"))
 k0 = 1.5 * (0.05 * U0) ** 2
@@ -713,7 +778,8 @@ runApplication reconstructPar -latestTime
 
 (case / "case_info.txt").write_text(
     f"MDOT {MDOT}\nCP {CP}\nT_IN {T_IN}\nP_ABS {P_ABS}\nM_GAS {M_GAS}\nwall_R {a.wall_R}\n"
-    f"bundle_fac {a.bundle_fac}\nscenario {a.scenario}\n"
+    f"bundle_fac {a.bundle_fac}\nbundle_R {a.bundle_R}\ndust_frac {a.dust_frac}\n"
+    f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nscenario {a.scenario}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")

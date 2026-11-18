@@ -76,8 +76,9 @@ it = nums(last_row("outletT", "surfaceFieldValue.dat"))
 T_out = it[1]
 Q_tot = MDOT * CP * (T_IN - T_out)
 p_in = nums(last_row("pressures", "surfaceFieldValue.dat"))[1]
-print(f"Итерация {int(it[0])}   (стенки: отложения R = {F('wall_R'):g} м²К/Вт; пучки: множитель α {F('bundle_fac'):g}; "
-      f"губка {info['scenario']})")
+print(f"Итерация {int(it[0])}: зола на стенках R = {F('wall_R'):g}, налёт на трубах R = {info.get('bundle_R', '0')} м²К/Вт; "
+      f"пыль в пучки {float(info.get('dust_frac', 0.2)) * 100:.0f} %; бункеры {float(info.get('hopper_fill', 0)) * 100:.0f} %; "
+      f"поглощение {info.get('absorb', '?')} 1/м; губка {info['scenario']}")
 print(f"Газ на выходе: {T_out - 273.15:.0f} °C   (установка ~600 °C)")
 print(f"Газ отдал всего: {Q_tot / 1e6:.1f} МВт   Перепад давления вход-выход: {p_in - P_ABS:.0f} Па")
 
@@ -104,10 +105,14 @@ if Qb:
     # температуры пара по ступеням при 50 т/ч (противоток: пар входит в SH4)
     m_s, cp_s = 50000 / 3600, 2670.0
     Ts = 250.0
-    out = []
+    out, mean = [], {}
     for n in ("SH4", "SH3", "SH2", "SH1"):
         Ts_in = Ts
         Ts += Qb[n] / (m_s * cp_s)
+        mean[n] = (Ts_in + Ts) / 2
         out.append(f"{n}: {Ts_in:.0f}->{Ts:.0f}")
     print("Пар (50 т/ч, cp ~2.67 кДж/кг·К): " + ", ".join(out) + " °C")
+    used = ", ".join(f"{n} {F(f'Ta_{n}') - 273.15:.0f}" for n in ("SH4", "SH3", "SH2", "SH1"))
+    print(f"Пар в расчёте был задан (средний по ступени): {used} °C")
+    (case / "ta_next.txt").write_text(",".join(f"{mean[n]:.1f}" for n in ("SH1", "SH2", "SH3", "SH4")))
 print("\nДоля < 100 % — остальной газ обходит пучок (снизу, через бункер).")
