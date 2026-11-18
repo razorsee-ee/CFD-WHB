@@ -22,6 +22,8 @@ ap.add_argument("--res", type=float, default=0.3, help="размер ячейк�
 ap.add_argument("--ny", type=int, default=12, help="ячеек по ширине")
 ap.add_argument("--np", type=int, default=4, help="число процессов")
 ap.add_argument("--iters", type=int, default=3000)
+ap.add_argument("--absorb", type=float, default=0.6,
+                help="коэффициент поглощения газа+пыли для излучения P1, 1/м (0 — без излучения в объёме)")
 ap.add_argument("--scenario", choices=["A", "B"], default="B",
                 help="A — по корреляциям (Гаддис, Жукаускас); B — по CFD куска пучка (docs/CALIBRATION.md)")
 a = ap.parse_args()
@@ -68,7 +70,7 @@ X_CO2, X_H2O = 0.1412, 0.1642
 M_GAS = 28.73                   # кг/кмоль
 KMOL_H = 10149.0
 MDOT = KMOL_H * M_GAS / 3600    # кг/с (~81.0)
-T_IN = 757 + 273.15
+T_IN = 745 + 273.15            # газ из циклонов 740–750 °C (пользователь)
 T_WALL = 250 + 273.15
 CP = 1250.0
 MU = 3.7e-5
@@ -344,6 +346,32 @@ for name, x0, x1 in g.BUNDLES:
     }}
 }}
 """)
+if a.absorb > 0:
+    # Излучение в объёме (P1): газ CO2+H2O на толщине ~3 м eps ~0.38 -> a ~0.16 1/м;
+    # пыль 10 т/ч, 20 мкм -> a ~0.44 1/м. Стенки — мембрана, eps 0.8.
+    models.append("""radiation
+{
+    type    radiation;
+    libs    ("libradiationModels.so");
+}
+""")
+    write("constant/radiationProperties", f"""radiationModel  P1;
+
+solverFreq      5;
+
+absorptionEmissionModel constant;
+
+constantCoeffs
+{{
+    absorptivity    {a.absorb};
+    emissivity      {a.absorb};
+    E               0;
+}}
+
+scatterModel    none;
+
+sootModel       none;
+""")
 write("constant/fvModels", "\n".join(models))
 
 # ---------------------------------------------------------------- свойства
@@ -447,6 +475,12 @@ field("nut", "volScalarField", "[0 2 -1 0 0 0 0]", "uniform 0",
 field("alphat", "volScalarField", "[1 -1 -1 0 0 0 0]", "uniform 0",
       I("type calculated;\nvalue uniform 0;"), I("type calculated;\nvalue uniform 0;"),
       I("type compressible::alphatWallFunction;\nPrt 0.85;\nvalue uniform 0;"))
+
+if a.absorb > 0:
+    field("G", "volScalarField", "[1 0 -3 0 0 0 0]", "uniform 0",
+          I("type MarshakRadiation;\nemissivityMode lookup;\nemissivity uniform 1;\nvalue uniform 0;"),
+          I("type MarshakRadiation;\nemissivityMode lookup;\nemissivity uniform 1;\nvalue uniform 0;"),
+          I("type MarshakRadiation;\nemissivityMode lookup;\nemissivity uniform 0.8;\nvalue uniform 0;"))
 
 # ---------------------------------------------------------------- system
 zones_vol = "\n".join(f"""    {n}_T
@@ -593,6 +627,14 @@ write("system/fvSolution", """solvers
         solver          PBiCGStab;
         preconditioner  DILU;
         tolerance       1e-8;
+        relTol          0.1;
+    }
+
+    G
+    {
+        solver          PCG;
+        preconditioner  DIC;
+        tolerance       1e-6;
         relTol          0.1;
     }
 }
