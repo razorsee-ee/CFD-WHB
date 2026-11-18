@@ -22,6 +22,8 @@ ap.add_argument("--res", type=float, default=0.3, help="размер ячейк�
 ap.add_argument("--ny", type=int, default=12, help="ячеек по ширине")
 ap.add_argument("--np", type=int, default=4, help="число процессов")
 ap.add_argument("--iters", type=int, default=3000)
+ap.add_argument("--scenario", choices=["A", "B"], default="B",
+                help="A — по корреляциям (Гаддис, Жукаускас); B — по CFD куска пучка (docs/CALIBRATION.md)")
 a = ap.parse_args()
 R = a.res
 
@@ -226,7 +228,11 @@ write("system/topoSetDict", "actions\n(\n" + "\n".join(actions) + "\n);\n")
 
 # ---------------------------------------------------------------- пористость и теплообмен
 sigma = 1 - g.D_TUBE / g.S_TRANS                 # живое сечение поперёк хода газа
-EU = 0.25                                        # Эйлер на ряд (коридорный пучок, Re ~ 4e3)
+# Калибровка (docs/CALIBRATION.md): Эйлер на ряд по Гаддису–Гнилинскому (VDI) для шагов пучка;
+# сценарий B — множители по нестационарному CFD куска пучка (Δp x0.72, α x0.71).
+EU_CORR = {"EVAP": 0.18, "SH": 0.159}
+DP_FAC, H_FAC = {"A": (1.0, 1.0), "B": (0.72, 0.71)}[a.scenario]
+H_STEAM = 600.0                                  # α со стороны пара (на наружную поверхность), SH
 
 
 def htc_table():
@@ -236,16 +242,23 @@ def htc_table():
     for U in [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30]:
         Re = (U / sigma) * g.D_TUBE / nu
         Nu = 0.27 * Re ** 0.63 * PR ** 0.36 if Re > 0 else 0
-        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE)))
+        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE) * H_FAC))
     return rows
 
 
-tab = "\n".join(f"                ({u:g} {h:.4g})" for u, h in htc_table())
+def tab_for(name):
+    """Таблица htc(U); для пароперегревателей последовательно добавлено сопротивление пара."""
+    rows = htc_table()
+    if name != "EVAP":
+        rows = [(u, 1 / (1 / h + 1 / H_STEAM)) for u, h in rows]
+    return "\n".join(f"                ({u:g} {h:.4g})" for u, h in rows)
+
 models = []
 info = []
 for name, x0, x1 in g.BUNDLES:
     L = x1 - x0
     nt = g.TUBES[name]
+    EU = EU_CORR["EVAP" if name == "EVAP" else "SH"] * DP_FAC
     fx = nt * EU / (L * sigma ** 2)
     sig_y = 1 - g.D_TUBE / (L / nt)
     fy = (1 / g.S_TRANS) * 0.3 / sig_y ** 2
@@ -290,7 +303,7 @@ for name, x0, x1 in g.BUNDLES:
         type    table;
         values
         (
-{tab}
+{tab_for(name)}
         );
         outOfBounds clamp;
     }}
