@@ -559,7 +559,7 @@ def wall_T(R):
         return I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};")
     return I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 2500;\n"
              f"thicknessLayers ({R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
-             + ("qr qr;\nqrRelaxation 0.2;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};")
+             + ("qr qr;\nqrRelaxation 0.2;\nqrPrevious uniform 0;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};")
 
 
 DUCT_R = a.wall_R if a.duct_R is None else a.duct_R
