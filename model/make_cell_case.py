@@ -23,6 +23,8 @@ ap.add_argument("case")
 ap.add_argument("--mode", choices=["resolved", "porous"], required=True)
 ap.add_argument("--U0", type=float, default=7.0, help="скорость перед пучком, м/с")
 ap.add_argument("--bundle", choices=["SH", "EVAP"], default="SH")
+ap.add_argument("--eu", type=float, default=0.25, help="Эйлер на ряд (пористый)")
+ap.add_argument("--hfac", type=float, default=1.0, help="множитель к htc (пористый)")
 ap.add_argument("--iters", type=int, default=4000)
 ap.add_argument("--np", type=int, default=4)
 ap.add_argument("--nt", type=int, default=24, help="ячеек на четверть окружности")
@@ -211,7 +213,7 @@ write("constant/pRef", f"dimensions [1 -1 -2 0 0 0 0];\nvalue {P_ABS};\n", cls="
 if a.mode == "porous":
     # те же формулы, что в make_case.py
     sigma = 1 - D / S1
-    EU = 0.25
+    EU = a.eu
     nt_ = N
     fx = nt_ * EU / (L_ZONE * sigma ** 2)
     Av = nt_ * math.pi * D / (L_ZONE * S1)   # на единицу объёма канала высотой S1
@@ -221,7 +223,7 @@ if a.mode == "porous":
     for U in [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30]:
         Re = (U / sigma) * D / nu
         h = 0.27 * Re ** 0.63 * PR ** 0.36 * K_GAS / D if Re > 0 else 0
-        tab.append(f"({U:g} {max(5.0, h):.4g})")
+        tab.append(f"({U:g} {max(5.0, h) * a.hfac:.4g})")
     write("constant/fvModels", f"""porosity
 {{
     type porosityForce;
