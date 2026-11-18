@@ -371,7 +371,7 @@ if a.absorb > 0:
 """)
     write("constant/radiationProperties", f"""radiationModel  P1;
 
-solverFreq      5;
+solverFreq      1;
 
 absorptionEmissionModel constant;
 
@@ -475,7 +475,7 @@ field("T", "volScalarField", "[0 0 0 1 0 0 0]", f"uniform {T_IN - 100:.2f}",
       I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};") if a.wall_R <= 0 else
       I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 5000;\n"
         f"thicknessLayers ({a.wall_R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
-        + ("qr qr;\nqrRelaxation 0.5;\n" if a.absorb > 0 else "") + f"relaxation 0.5;\nvalue uniform {T_WALL:.2f};"))
+        + ("qr qr;\nqrRelaxation 0.2;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};"))
 k0 = 1.5 * (0.05 * U0) ** 2
 eps0 = 0.09 ** 0.75 * k0 ** 1.5 / 0.3
 field("k", "volScalarField", "[0 2 -2 0 0 0 0]", f"uniform {k0:.4g}",
