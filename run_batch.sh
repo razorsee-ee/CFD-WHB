@@ -13,6 +13,7 @@ NP=${1:-8}
 ITERS=${ITERS:-4000}
 REPO=$(cd "$(dirname "$0")" && pwd)
 PY=$(command -v python3 || command -v python)
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8   # Windows: иначе кириллица в выводе роняет Python
 [ -z "$WM_PROJECT_DIR" ] && { echo "Не видно OpenFOAM: запускайте из терминала blueCFD"; exit 1; }
 [ -z "$PY" ] && { echo "Нет python"; exit 1; }
 
@@ -29,7 +30,7 @@ for spec in $CASES; do
     DIR="$FOAM_RUN/\$d"
     NY=\$("$PY" -c "print(max(6, round(4.65 / (2 * \$res))))")
     "$PY" "$REPO/model/make_case.py" "\$DIR" --res \$res --ny \$NY --np $NP --iters $ITERS --scenario \$sc \
-        > "$FOAM_RUN/\$d.make.txt" 2>&1 || continue
+        > "$FOAM_RUN/\$d.make.txt" 2>&1 || { echo "===== \$d: ОШИБКА при создании кейса, см. $FOAM_RUN/\$d.make.txt" >> "$FOAM_RUN/batch_summary.txt"; continue; }
     (cd "\$DIR" && ./Allrun > log.Allrun 2>&1)
     "$PY" "$REPO/model/whb_summary.py" "\$DIR" > "\$DIR/summary.txt" 2>&1
     date > "\$DIR/DONE"

@@ -13,6 +13,7 @@ NP=${2:-8}
 RES=${3:-0.3}
 REPO=$(cd "$(dirname "$0")" && pwd)
 PY=$(command -v python3 || command -v python)
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8   # Windows: иначе кириллица в выводе роняет Python
 
 if [ -z "$WM_PROJECT_DIR" ]; then
     echo "Не видно OpenFOAM: запускайте из терминала blueCFD (MSYS2), где работает blockMesh"; exit 1
