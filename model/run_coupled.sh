@@ -33,6 +33,9 @@ for k in $(seq 1 "$NOUT"); do
     )
     "$PY" "$REPO/model/whb_summary.py" "$DIR" > "$DIR/summary.txt" 2>&1
     cat "$DIR/summary.txt"
+    # картинки (если есть matplotlib): ход расчёта и стандартные виды
+    "$PY" "$REPO/model/monitor.py" "$DIR" > /dev/null 2>&1
+    "$PY" "$REPO/model/views.py" "$DIR" > "$DIR/views.log" 2>&1 && echo "Виды: $DIR/views.html"
     NEXT=$(cat "$DIR/ta_next.txt" 2>/dev/null)
     # нижняя релаксация температуры пара 50/50 (иначе заходы раскачиваются)
     OLD=${TA:-413,361,312,270}

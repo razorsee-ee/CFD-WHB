@@ -635,6 +635,12 @@ functions
         libs            ("libfieldFunctionObjects.so");
         writeControl    writeTime;
     }}
+    cellCentres
+    {{
+        type            writeCellCentres;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    writeTime;
+    }}
     wallQ
     {{
         type            wallHeatFlux;
@@ -838,6 +844,7 @@ runApplication reconstructPar -latestTime
     f"MDOT {MDOT}\nCP {CP}\nT_IN {T_IN}\nP_ABS {P_ABS}\nM_GAS {M_GAS}\nwall_R {a.wall_R}\n"
     f"bundle_fac {a.bundle_fac}\nbundle_R {a.bundle_R}\ndust_frac {a.dust_frac}\n"
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
+    f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")
