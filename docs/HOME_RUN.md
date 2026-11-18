@@ -60,3 +60,13 @@ cd $FOAM_RUN/whb_coarse && paraFoam -builtin
 ```bash
 cd $FOAM_RUN/CFD-WHB && bash run_home.sh $FOAM_RUN/whb_015 8 0.15
 ```
+
+## Серия из трёх расчётов по очереди (грубая B, грубая A, 0.15 м B)
+
+```bash
+cd $FOAM_RUN/CFD-WHB && bash run_batch.sh
+```
+Готово, когда есть `$FOAM_RUN/BATCH_DONE`. Общая сводка:
+```bash
+cat $FOAM_RUN/batch_summary.txt
+```
