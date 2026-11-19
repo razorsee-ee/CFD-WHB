@@ -31,7 +31,7 @@ ap.add_argument("--hopper_fill", type=float, default=0.10, help="заполне�
 ap.add_argument("--hopper2_fill", type=float, default=None, help="заполнение правого бункера (по умолчанию = hopper_fill)")
 ap.add_argument("--skirts", default="",
                 help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
-                     "sh1, sh2, sh3 (за этим пучком), sh4 (за SH4, перед выходом)")
+                     "sh1, sh2, sh3 (за этим пучком), sh4 (между SH4 и стенкой), sh4end (сразу за SH4, до стенки бункера)")
 ap.add_argument("--steam_kg_s", type=float, default=13.0, help="пар через пароперегреватели (до впрыска), кг/с")
 ap.add_argument("--spray_kg_s", type=float, default=1.0, help="впрыск воды в пар (сумма), кг/с; считается перед SH1")
 ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
@@ -332,7 +332,9 @@ for name, x0, x1 in g.BUNDLES:
 _bx = {n: (x0, x1) for n, x0, x1 in g.BUNDLES}
 SKIRT_X = {"evap": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "sh1": (_bx["SH1"][1] + _bx["SH2"][0]) / 2,
            "sh2": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "sh3": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
-           "sh4": (_bx["SH4"][1] + g.X_RIGHT) / 2}
+           "sh4": (_bx["SH4"][1] + g.X_RIGHT) / 2,
+           # сразу за SH4: вертикально вниз до наклонной стенки бункера — закрывает выход газа из-под пучков
+           "sh4end": _bx["SH4"][1] + 0.5 * R}
 SKIRTS = []
 for item in filter(None, a.skirts.split(",")):
     where, depth = item.split(":")
