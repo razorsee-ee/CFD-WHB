@@ -28,6 +28,13 @@ ap.add_argument("--bundle_R", type=float, default=0.0,
 ap.add_argument("--dust_frac", type=float, default=0.4,
                 help="доля от 50 т/ч золы, пролетающая первый бункер в пучки")
 ap.add_argument("--hopper_fill", type=float, default=0.10, help="заполнение бункеров золой, доля объёма")
+ap.add_argument("--hopper2_fill", type=float, default=None, help="заполнение правого бункера (по умолчанию = hopper_fill)")
+ap.add_argument("--skirts", default="",
+                help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
+                     "sh1, sh2, sh3 (за этим пучком), sh4 (за SH4, перед выходом)")
+ap.add_argument("--steam_kg_s", type=float, default=13.0, help="пар через пароперегреватели (до впрыска), кг/с")
+ap.add_argument("--spray_kg_s", type=float, default=1.0, help="впрыск воды в пар (сумма), кг/с; считается перед SH1")
+ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
 ap.add_argument("--duct_R", type=float, default=None,
                 help="отложения на стенках газоходов (наклонный + вертикальный), м²·К/Вт; по умолчанию = wall_R")
 ap.add_argument("--wall_R", type=float, default=0.0,
@@ -171,7 +178,10 @@ def hopper_fill_z(frac):
 
 
 Z_ASH = hopper_fill_z(a.hopper_fill) if a.hopper_fill > 0 else 0.0
+_f2 = a.hopper_fill if a.hopper2_fill is None else a.hopper2_fill
+Z_ASH2 = hopper_fill_z(_f2) if _f2 > 0 else 0.0     # бункеры почти одинаковые по форме
 nz_h = n_cells(Zh - Z_ASH)
+nz_h2 = n_cells(Zh - Z_ASH2)
 
 
 def at_z(p_low, p_high, z):
@@ -183,7 +193,12 @@ def at_z(p_low, p_high, z):
 def hop(q):
     """Бункерный блок, обрезанный снизу по уровню золы."""
     p0, p1, p2, p3 = q
-    return (at_z(p0, p3, Z_ASH), at_z(p1, p2, Z_ASH), p2, p3)
+    return hop_z(q, Z_ASH)
+
+
+def hop_z(q, z):
+    p0, p1, p2, p3 = q
+    return (at_z(p0, p3, z), at_z(p1, p2, z), p2, p3)
 
 blocks = [
     # имя, (p0, p1, p2, p3) против часовой в (x, z); (n1, grading1), (n2, grading2)
@@ -196,7 +211,7 @@ blocks = [
     ("ext", ((g.X_OUT, g.Z_OUT_BOT), (xo_end, g.Z_OUT_BOT), (xo_end, g.Z_OUT_TOP), (g.X_OUT, g.Z_OUT_TOP)), (n_ext, "1"), (nz_b, "1")),
     ("hop1a", hop(((g.HOP1_BOT[0], 0), (split1, 0), (g.SHAFT, Zh), (0, Zh))), (ns, "1"), (nz_h, "1")),
     ("hop1b", hop(((split1, 0), (g.HOP1_BOT[1], 0), (g.X_APEX, Zh), (g.SHAFT, Zh))), grading_spec(sec_left), (nz_h, "1")),
-    ("hop2", hop(((g.HOP2_BOT[0], 0), (g.HOP2_BOT[1], 0), (g.X_RIGHT, Zh), (g.X_APEX, Zh))), grading_spec(sec_right), (nz_h, "1")),
+    ("hop2", hop_z(((g.HOP2_BOT[0], 0), (g.HOP2_BOT[1], 0), (g.X_RIGHT, Zh), (g.X_APEX, Zh)), Z_ASH2), grading_spec(sec_right), (nz_h2, "1")),
 ]
 
 
@@ -312,6 +327,23 @@ for name, x0, x1 in g.BUNDLES:
         action  new;
         source  boxToCell;
         box     ({x0 + eps:.6f} -100 {Zh:.6f}) ({x1 - eps:.6f} 100 {Zc:.6f});
+    }}""")
+# юбки: столбец ячеек на всю ширину от низа пучков вниз
+_bx = {n: (x0, x1) for n, x0, x1 in g.BUNDLES}
+SKIRT_X = {"evap": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "sh1": (_bx["SH1"][1] + _bx["SH2"][0]) / 2,
+           "sh2": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "sh3": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
+           "sh4": (_bx["SH4"][1] + g.X_RIGHT) / 2}
+SKIRTS = []
+for item in filter(None, a.skirts.split(",")):
+    where, depth = item.split(":")
+    SKIRTS.append((where, SKIRT_X[where], float(depth)))
+for i, (where, xs, depth) in enumerate(SKIRTS):
+    actions.append(f"""    {{
+        name    SKIRTS;
+        type    cellZoneSet;
+        action  {"new" if i == 0 else "add"};
+        source  boxToCell;
+        box     ({xs - 0.55 * R:.6f} -100 {Zh - depth:.6f}) ({xs + 0.55 * R:.6f} 100 {Zh:.6f});
     }}""")
 write("system/topoSetDict", "actions\n(\n" + "\n".join(actions) + "\n);\n")
 
@@ -453,6 +485,26 @@ constantCoeffs
 scatterModel    none;
 
 sootModel       none;
+""")
+if SKIRTS:
+    # юбка = практически непроницаемый слой ячеек (очень большое сопротивление во всех направлениях)
+    models.append("""SKIRTS_blockage
+{
+    type            porosityForce;
+    porosityForceCoeffs
+    {
+        cellZone        SKIRTS;
+        type            DarcyForchheimer;
+        d   (1e7 1e7 1e7);
+        f   (1e4 1e4 1e4);
+        coordinateSystem
+        {
+            type    cartesian;
+            origin  (0 0 0);
+            coordinateRotation { type axesRotation; e1 (1 0 0); e3 (0 0 1); }
+        }
+    }
+}
 """)
 write("constant/fvModels", "\n".join(models))
 
@@ -845,6 +897,8 @@ runApplication reconstructPar -latestTime
     f"bundle_fac {a.bundle_fac}\nbundle_R {a.bundle_R}\ndust_frac {a.dust_frac}\n"
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
     f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
+    f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
+    f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")
