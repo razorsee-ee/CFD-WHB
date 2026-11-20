@@ -46,6 +46,10 @@ ap.add_argument("--wall_R", type=float, default=0.0,
 ap.add_argument("--bundle_fac", type=float, default=1.0,
                 help="multiplier on the gas-side htc in the bundles (fouling and uncertainty)")
 ap.add_argument("--ta", default="", help="steam temperatures SH1,SH2,SH3,SH4, C (default 413,361,312,270)")
+ap.add_argument("--relax_p", type=float, default=0.3, help="under-relaxation of p_rgh")
+ap.add_argument("--relax_u", type=float, default=0.5, help="under-relaxation of U, h, k, epsilon")
+ap.add_argument("--lts", action="store_true", help="local time stepping (pseudo-transient) instead of SIMPLE")
+ap.add_argument("--lts_co", type=float, default=1.0, help="max Courant number for --lts")
 ap.add_argument("--absorb", type=float, default=None,
                 help="gas+dust absorption coefficient for P1, 1/m (default: from dust load; 0 = no radiation)")
 ap.add_argument("--scenario", choices=["A", "B"], default="A",
@@ -169,7 +173,7 @@ lx_incl = math.dist(g.BEND_INNER, g.INLET_INNER)
 n_incl = n_cells(lx_incl)
 n_shaft = n_cells(g.BEND_INNER[1] - g.Z_CEIL)
 n_out = n_cells(g.X_OUT - g.X_RIGHT)
-n_ext = n_cells(g.OUTLET_EXT, 2 * R)
+n_ext = n_cells(g.OUTLET_EXT, R)
 
 # ---------------------------------------------------------------- blocks (x, z)
 Zc, Zh = g.Z_CEIL, g.Z_HOP
@@ -616,7 +620,7 @@ I = lambda s: "\n".join("        " + l for l in s.strip().splitlines())
 U0 = MDOT / (P_ABS * M_GAS / (8314 * T_IN)) / (g.SHAFT * g.W)   # ~ velocity in the vertical duct
 field("U", "volVectorField", "[0 1 -1 0 0 0 0]", "uniform (0 0 0)",
       I(f"type flowRateInletVelocity;\nmassFlowRate {MDOT:.4g};\nvalue uniform (0 0 0);"),
-      I("type pressureInletOutletVelocity;\nvalue uniform (0 0 0);"),
+      I("type inletOutlet;\ninletValue uniform (0 0 0);\nvalue uniform (0 0 0);"),
       I("type noSlip;"))
 field("p", "volScalarField", "[1 -1 -2 0 0 0 0]", f"uniform {P_ABS}",
       I("type calculated;\nvalue $internalField;"), I("type calculated;\nvalue $internalField;"),
@@ -827,7 +831,7 @@ functions
 
 write("system/fvSchemes", """ddtSchemes
 {
-    default         steadyState;
+    default         @DDT@;
 }
 
 gradSchemes
@@ -870,8 +874,38 @@ wallDist
 {
     method meshWave;
 }
-""")
+""".replace("@DDT@", "localEuler" if a.lts else "steadyState"))
 
+# local time stepping (pseudo-transient) start: robust on fine meshes started from rest
+LTS_FINAL = """
+    "rho.*"
+    {
+        solver          diagonal;
+    }
+
+    p_rghFinal
+    {
+        $p_rgh;
+        relTol          0;
+    }
+
+    "(U|h|k|epsilon)Final"
+    {
+        $U;
+        relTol          0;
+    }
+
+    GFinal
+    {
+        $G;
+        relTol          0;
+    }"""
+LTS_PIMPLE = f"""    nOuterCorrectors 1;
+    nCorrectors     2;
+    maxCo           {a.lts_co};
+    rDeltaTSmoothingCoeff 0.1;
+    rDeltaTDampingCoeff 1;
+    maxDeltaT       1;"""
 write("system/fvSolution", """solvers
 {
     p_rgh
@@ -897,12 +931,14 @@ write("system/fvSolution", """solvers
         tolerance       1e-6;
         relTol          0.1;
     }
+@FINAL@
 }
 
 PIMPLE
 {
     momentumPredictor yes;
     nNonOrthogonalCorrectors 1;
+@LTS@
 }
 
 relaxationFactors
@@ -910,16 +946,17 @@ relaxationFactors
     fields
     {
         rho             1.0;
-        p_rgh           0.3;
+        p_rgh           @RP@;
     }
     equations
     {
-        U               0.5;
-        h               0.5;
-        "(k|epsilon)"   0.5;
+        U               @RU@;
+        h               @RU@;
+        "(k|epsilon)"   @RU@;
     }
 }
-""")
+""".replace("@RP@", str(a.relax_p)).replace("@RU@", str(a.relax_u))
+     .replace("@FINAL@", LTS_FINAL if a.lts else "").replace("@LTS@", LTS_PIMPLE if a.lts else ""))
 
 write("system/decomposeParDict", f"""numberOfSubdomains {a.np};
 

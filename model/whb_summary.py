@@ -142,7 +142,7 @@ if t is not None and (t / "Vc").exists():
                   "after_SH4": (bx["SH4"][1] + g.X_RIGHT) / 2, "outlet": g.X_OUT + 2.0}
         for pn, xp in planes.items():
             acc = {"all": [0.0, 0.0, 0.0], "above": [0.0, 0.0, 0.0], "below": [0.0, 0.0, 0.0]}
-            dx = 2 * RES if pn == "outlet" else RES                 # outlet extension has 2x longer cells
+            dx = RES
             for i, c in enumerate(C):
                 if abs(c[0] - xp) >= 0.5 * dx:
                     continue
