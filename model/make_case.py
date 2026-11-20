@@ -686,6 +686,11 @@ for _n, _x in _gaps.items():
     for _lab, _z in (("top", Zc - 1.0), ("mid", Zh + g.BUNDLE_DEPTH / 2), ("low", Zh + 0.5)):
         PROBE_LIST.append((f"{_n}_{_lab}", (_x, 0.0, _z)))
 PROBE_LIST.append(("outlet_mid", (g.X_OUT + 2.0, 0.0, (g.Z_OUT_BOT + g.Z_OUT_TOP) / 2)))
+# термопара «vertical path» (~725 °C): вертикальный газоход, посередине стенки длиной 3.7 м,
+# неглубокий ввод (~0.15 м от стенки); высота неизвестна — три высоты, у стенки и в центре
+for _z in (22.0, 26.0, 30.0):
+    PROBE_LIST.append((f"shaftwall_{_z:.0f}", (g.SHAFT / 2, g.W / 2 - 0.15, _z)))
+    PROBE_LIST.append((f"shaftmid_{_z:.0f}", (g.SHAFT / 2, 0.0, _z)))
 PROBES = "\n".join(f"            ({p[0]:.4f} {p[1]:.4f} {p[2]:.4f})" for _, p in PROBE_LIST)
 write("system/controlDict", f"""application     foamRun;
 

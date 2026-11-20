@@ -167,4 +167,8 @@ if names and pf:
         d = DCS[gname]
         print(f"{lab:10s} {v[0]:7.0f} {v[1]:9.0f} {v[2]:7.0f}   {d if d else '':>5}")
     print(f"выходной газоход, середина: {vals.get('outlet_mid', float('nan')) - 273.15:.0f} °C (DCS 618)")
+    if "shaftwall_22" in vals:
+        print("Вертикальный газоход (DCS «vertical path» ~725 °C, термопара у стенки посередине):")
+        for zz in ("22", "26", "30"):
+            print(f"  z = {zz} м: у стенки {vals[f'shaftwall_{zz}'] - 273.15:.0f} °C, в центре {vals[f'shaftmid_{zz}'] - 273.15:.0f} °C")
 print("\nДоля < 100 % — остальной газ обходит пучок (снизу, через бункер).")
