@@ -628,7 +628,7 @@ field("p_rgh", "volScalarField", "[1 -1 -2 0 0 0 0]", "uniform 0",
 def wall_T(R):
     if R <= 0:
         return I(f"type fixedValue;\nvalue uniform {T_WALL:.2f};")
-    return I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 2500;\n"
+    return I(f"type externalTemperature;\nTa constant {T_WALL:.2f};\nh uniform 800;\n"
              f"thicknessLayers ({R * K_ASH:.5g});\nkappaLayers ({K_ASH});\n"
              + ("qr qr;\nqrRelaxation 0.2;\nqrPrevious uniform 0;\n" if a.absorb > 0 else "") + f"relaxation 0.2;\nvalue uniform {T_WALL:.2f};")
 
