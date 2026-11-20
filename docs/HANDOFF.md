@@ -205,8 +205,7 @@
   Protection Off. Ставим **Ubuntu 24.04.5 рядом с Windows без флешки**: временный FAT32-раздел L: (8 ГБ) с
   содержимым ISO; загрузчик ISO скопирован в ESP `\EFI\ubuntu-live\`; пункт прошивки «Ubuntu installer»
   `{fcdc36e4-9297-11f0-923d-e61d8e39978f}` (bcdedit) → F12. С раздела L: прошивка грузить отказалась, с ESP — ок.
-  Secure Boot On, в db есть Microsoft UEFI CA 2011/2023 — не мешает. **Live-сессия загрузилась, установка ещё
-  не делалась.** Дальше: Install → если пишет про BitLocker — Manual: free space → ext4 `/`, загрузчик на весь
+  Secure Boot On, в db есть Microsoft UEFI CA 2011/2023 — не мешает. **Ubuntu установлена (ручная разметка, p6 ext4 /), OpenFOAM-12 пакетом стоит.** См. `docs/LINUX_SETUP.md`. Дальше: Install → если пишет про BitLocker — Manual: free space → ext4 `/`, загрузчик на весь
   диск, ESP не форматировать; потом `openfoam12` пакетом, тест скорости (0.2 м, 300 итер.), удалить L:,
   `ubuntu-live`, пункт bcdedit. Выбран OpenFOAM-12 (не 14): совместимость с blueCFD и калибровкой.
 
@@ -238,6 +237,7 @@
 | `run_variants.sh` | серия вариантов переделок на базе `BASE`; продолжаемая; таблица из summary.json |
 | `model/make_cell_case.py`, `cell_result.py`, `plot_cell.py`, `cell_ascii.sh` | проверка губки на куске пучка (архив) |
 | `tools/setup_openfoam12.sh` | установка OpenFOAM-12 в контейнер |
+| `tools/bench.sh` | тест скорости (0.2 м, 300 итер.), `bench_results.txt`; контейнер: 0.187 с/итер на 4 ядрах |
 | удалены | `run_home.sh`, `run_batch.sh`, `model/plot_geometry.py` (устарели) |
 
 Правила, усвоенные в этом проекте:
