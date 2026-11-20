@@ -32,8 +32,10 @@ ap.add_argument("--hopper2_fill", type=float, default=None, help="заполне
 ap.add_argument("--skirts", default="",
                 help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
                      "sh1, sh2, sh3 (за этим пучком), sh4 (между SH4 и стенкой), sh4end (сразу за SH4, до стенки бункера)")
-ap.add_argument("--extra_water_t_h", type=float, default=0.0, help="неучтённая вода в топку, т/ч (добавляется к H2O газа)")
-ap.add_argument("--o2", type=float, default=0.028, help="O2 во влажном газе, доля")
+ap.add_argument("--extra_water_t_h", type=float, default=14.0, help="неучтённая вода в топку, т/ч (добавляется к H2O газа)")
+ap.add_argument("--extra_air_nm3_h", type=float, default=10000.0, help="неучтённый воздух (горелки), Нм³/ч")
+ap.add_argument("--extra_n2_nm3_h", type=float, default=2000.0, help="азот из уплотнений, Нм³/ч")
+ap.add_argument("--o2", type=float, default=None, help="довести O2 во влажном газе до этой доли (по умолчанию — как получится)")
 ap.add_argument("--steam_kg_s", type=float, default=15.9, help="пар через пароперегреватели (до впрыска), кг/с (DCS: 16.17 на выходе)")
 ap.add_argument("--spray_kg_s", type=float, default=0.25, help="впрыск воды в пар (сумма), кг/с; считается перед SH1 (IIIb)")
 ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
@@ -90,8 +92,11 @@ P_ABS = 112000 - 200             # на ВЫХОДЕ, Па абс.: вход 1.1
 # O2 доводится до --o2 (по умолчанию 2.8 %) добавкой воздуха; --extra_water_t_h — неучтённая вода в топку.
 _kmol = {"N2": 6796.0, "CO2": 1433.1, "H2O": 1667.0, "O2": 253.42}
 _kmol["H2O"] += a.extra_water_t_h * 1000 / 18.015
+_air = a.extra_air_nm3_h / 22.414
+_kmol["O2"] += 0.21 * _air
+_kmol["N2"] += 0.79 * _air + a.extra_n2_nm3_h / 22.414
 _tot = sum(_kmol.values())
-_add_o2 = max(0.0, (a.o2 * _tot - _kmol["O2"]) / (1 - 4.76 * a.o2))
+_add_o2 = max(0.0, (a.o2 * _tot - _kmol["O2"]) / (1 - 4.76 * a.o2)) if a.o2 else 0.0
 _kmol["O2"] += _add_o2
 _kmol["N2"] += 3.76 * _add_o2
 _MW = {"N2": 28.013, "CO2": 44.01, "H2O": 18.015, "O2": 31.999}
@@ -934,7 +939,8 @@ runApplication reconstructPar -latestTime
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
     f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
     f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
-    f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\nextra_water_t_h {a.extra_water_t_h}\no2 {a.o2}\n"
+    f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\nextra_water_t_h {a.extra_water_t_h}\n"
+    f"extra_air_nm3_h {a.extra_air_nm3_h}\nextra_n2_nm3_h {a.extra_n2_nm3_h}\nX_O2 {_kmol['O2'] / KMOL_H}\nX_H2O {X_H2O}\n"
     f"probes {','.join(n for n, _ in PROBE_LIST)}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
