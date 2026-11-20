@@ -1,9 +1,11 @@
 # CFD-WHB
 
-CFD-расчёты котла (OpenFOAM-12 Foundation; у пользователя — blueCFD-Core 2024 на Windows).
+CFD-расчёты котла-утилизатора за CFB-топкой (OpenFOAM-12 Foundation; у пользователя — blueCFD-Core 2024 на Windows).
 
-- `docs/NEW_PROJECT_OPENFOAM.md` — с чего начинать: пользователь и его система, установка OpenFOAM в облаке, стартовые точки для CFB, известные грабли OpenFOAM-12 и Windows.
-- `tools/setup_openfoam12.sh` — установка OpenFOAM-12 в облачном контейнере Claude:
-  `bash tools/setup_openfoam12.sh > /tmp/setup_openfoam12.log 2>&1`, затем `source /opt/of12env.sh`.
+**Новый чат: начинать с `docs/HANDOFF.md`** (полная передача проекта), затем `docs/MODEL_SETUP.md`.
 
-Соседний проект с теми же приёмами: `razorsee-ee/CFD-Venturi` (скруббер Вентури).
+- `docs/HANDOFF.md` — пользователь, объект, данные DCS, модель, калибровка, выводы, состояние, следующие шаги.
+- `docs/MODEL_SETUP.md` — все условия модели. `docs/PROJECT_NOTES.md` — исходные данные и результаты по ходу.
+- `docs/CALIBRATION.md` — калибровка «губки» (пористых пучков). `docs/HOME_RUN.md` — запуск у пользователя.
+- `model/` — генератор кейса, увязка пара, сводка, картинки. `run_night.sh`, `run_variants.sh` — серии.
+- `tools/setup_openfoam12.sh` — установка OpenFOAM-12 в облачном контейнере Claude.
