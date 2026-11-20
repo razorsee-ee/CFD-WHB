@@ -32,8 +32,8 @@ ap.add_argument("--hopper2_fill", type=float, default=None, help="заполне
 ap.add_argument("--skirts", default="",
                 help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
                      "sh1, sh2, sh3 (за этим пучком), sh4 (между SH4 и стенкой), sh4end (сразу за SH4, до стенки бункера)")
-ap.add_argument("--steam_kg_s", type=float, default=13.0, help="пар через пароперегреватели (до впрыска), кг/с")
-ap.add_argument("--spray_kg_s", type=float, default=1.0, help="впрыск воды в пар (сумма), кг/с; считается перед SH1")
+ap.add_argument("--steam_kg_s", type=float, default=15.9, help="пар через пароперегреватели (до впрыска), кг/с (DCS: 16.17 на выходе)")
+ap.add_argument("--spray_kg_s", type=float, default=0.25, help="впрыск воды в пар (сумма), кг/с; считается перед SH1 (IIIb)")
 ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
 ap.add_argument("--duct_R", type=float, default=None,
                 help="отложения на стенках газоходов (наклонный + вертикальный), м²·К/Вт; по умолчанию = wall_R")
@@ -90,7 +90,7 @@ X_CO2, X_H2O = 0.1412, 0.1642
 M_GAS = 28.73                   # кг/кмоль
 KMOL_H = 10149.0
 MDOT = KMOL_H * M_GAS / 3600    # кг/с (~81.0)
-T_IN = 745 + 273.15            # газ из циклонов 740–750 °C (пользователь)
+T_IN = 750 + 273.15            # смесь газа от циклонов (DCS: 754 и 746 °C)
 T_WALL = 250 + 273.15
 CP_GAS = 1250.0
 MU = 3.7e-5
@@ -659,6 +659,17 @@ zones_vol = "\n".join(f"""    {n}_T
         fields          (T U);
     }}""" for n, _, _ in g.BUNDLES)
 
+# зонды-«термопары»: посередине промежутков перед каждым пучком SH и на выходе котла;
+# по 3 высоты (1 м под потолком, середина пучков, 0.5 м над низом пучков), середина ширины
+_gaps = {"before_SH1": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "before_SH2": (_bx["SH1"][1] + _bx["SH2"][0]) / 2,
+         "before_SH3": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "before_SH4": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
+         "after_SH4": (_bx["SH4"][1] + g.X_RIGHT) / 2}
+PROBE_LIST = []
+for _n, _x in _gaps.items():
+    for _lab, _z in (("top", Zc - 1.0), ("mid", Zh + g.BUNDLE_DEPTH / 2), ("low", Zh + 0.5)):
+        PROBE_LIST.append((f"{_n}_{_lab}", (_x, 0.0, _z)))
+PROBE_LIST.append(("outlet_mid", (g.X_OUT + 2.0, 0.0, (g.Z_OUT_BOT + g.Z_OUT_TOP) / 2)))
+PROBES = "\n".join(f"            ({p[0]:.4f} {p[1]:.4f} {p[2]:.4f})" for _, p in PROBE_LIST)
 write("system/controlDict", f"""application     foamRun;
 
 solver          fluid;
@@ -716,6 +727,18 @@ functions
         patches         (inlet outlet);
         operation       sum;
         fields          (phi);
+    }}
+    tc
+    {{
+        type            probes;
+        libs            ("libsampling.so");
+        writeControl    timeStep;
+        writeInterval   50;
+        fields          (T);
+        probeLocations
+        (
+{PROBES}
+        );
     }}
     T_shaftExit
     {{
@@ -901,6 +924,7 @@ runApplication reconstructPar -latestTime
     f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
     f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
     f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\n"
+    f"probes {','.join(n for n, _ in PROBE_LIST)}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")

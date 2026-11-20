@@ -144,8 +144,27 @@ if Qb:
         h += Qb[n] / 1e3 / m
         mean[n] = (T_in + T_of(h)) / 2
         out.append(f"{n}: {T_in:.0f}->{T_of(h):.0f}")
-    print(f"Пар (40 бар, по таблице): " + ", ".join(out) + f" °C   -> на выходе {T_of(h):.0f} °C (установка 450)")
+    print(f"Пар (40 бар, по таблице): " + ", ".join(out) + f" °C   -> на выходе {T_of(h):.0f} °C")
+    print("Пар DCS (16.2 кг/с):        SH4(I): 251->291, SH3(II): 290->343, SH2(IIIa): 341->395, SH1(IIIb): 394->441 °C"
+          "  | тепло DCS: 2.19 / 2.30 / 2.15 / 1.76 = 8.4 МВт")
+    print("Тепло модели по ступеням:   " + " / ".join(f"{Qb[n] / 1e6:.2f}" for n in ("SH4", "SH3", "SH2", "SH1"))
+          + f" = {Q_sh / 1e6:.1f} МВт")
     used = ", ".join(f"{n} {F(f'Ta_{n}') - 273.15:.0f}" for n in ("SH4", "SH3", "SH2", "SH1"))
     print(f"Пар в расчёте был задан (средний по ступени): {used} °C")
     (case / "ta_next.txt").write_text(",".join(f"{mean[n]:.1f}" for n in ("SH1", "SH2", "SH3", "SH4")))
+# зонды-«термопары» (ориентир к DCS)
+DCS = {"before_SH1": 702, "before_SH2": 681, "before_SH3": 655, "before_SH4": 621, "after_SH4": None}
+names = info.get("probes", "").split(",") if info.get("probes") else []
+pf = sorted(pp.glob("tc/*/T"), key=lambda p: float(p.parent.name))
+if names and pf:
+    row = [l for l in pf[-1].read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")][-1]
+    vals = dict(zip(names, nums(row)[1:]))
+    print("\nЗонды между пучками, °C (по газу; DCS — ориентир, термопары = SH IIIb, IIIa, II, I):")
+    print("перед         верх   середина   низ     DCS")
+    for gname, lab in (("before_SH1", "SH IIIb"), ("before_SH2", "SH IIIa"), ("before_SH3", "SH II"),
+                       ("before_SH4", "SH I"), ("after_SH4", "за SH I")):
+        v = [vals.get(f"{gname}_{h}", float("nan")) - 273.15 for h in ("top", "mid", "low")]
+        d = DCS[gname]
+        print(f"{lab:10s} {v[0]:7.0f} {v[1]:9.0f} {v[2]:7.0f}   {d if d else '':>5}")
+    print(f"выходной газоход, середина: {vals.get('outlet_mid', float('nan')) - 273.15:.0f} °C (DCS 618)")
 print("\nДоля < 100 % — остальной газ обходит пучок (снизу, через бункер).")
