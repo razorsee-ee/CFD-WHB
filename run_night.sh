@@ -16,6 +16,8 @@ REPO=$(cd "$(dirname "$0")" && pwd)
 [ -z "$FOAM_RUN" ] && { echo "FOAM_RUN is not set"; exit 1; }
 VARIANTS=${VARIANTS:-"cal:0.08:0.10:0.05"}
 RES=${RES:-0.1}
+# local time stepping: robust start on fine meshes (plain SIMPLE diverges at 0.1 m), same steady answer
+EXTRA=${EXTRA:-"--lts --lts_co 5"}
 
 done_variant() { grep -qE "Superheaters:|Пароперегреватели" "$FOAM_RUN/$1_3/summary.txt" 2>/dev/null; }
 rm -f "$FOAM_RUN/NIGHT_DONE"
@@ -31,7 +33,7 @@ for v in $VARIANTS; do
     echo "$(date +%H:%M) ===== $d: ducts $duct, walls $wall, tubes $bund"
     rm -rf "$FOAM_RUN/${d}_1" "$FOAM_RUN/${d}_2" "$FOAM_RUN/${d}_3" "$FOAM_RUN/${d}_"?.make.txt
     bash "$REPO/model/run_coupled.sh" "$FOAM_RUN/$d" "$NP" "$RES" 3 \
-        --duct_R "$duct" --wall_R "$wall" --bundle_R "$bund"
+        --duct_R "$duct" --wall_R "$wall" --bundle_R "$bund" $EXTRA
 done
 rm -f "$FOAM_RUN/night_summary.txt"
 for v in $VARIANTS; do
