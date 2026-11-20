@@ -32,6 +32,8 @@ ap.add_argument("--hopper2_fill", type=float, default=None, help="заполне
 ap.add_argument("--skirts", default="",
                 help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
                      "sh1, sh2, sh3 (за этим пучком), sh4 (между SH4 и стенкой), sh4end (сразу за SH4, до стенки бункера)")
+ap.add_argument("--extra_water_t_h", type=float, default=0.0, help="неучтённая вода в топку, т/ч (добавляется к H2O газа)")
+ap.add_argument("--o2", type=float, default=0.028, help="O2 во влажном газе, доля")
 ap.add_argument("--steam_kg_s", type=float, default=15.9, help="пар через пароперегреватели (до впрыска), кг/с (DCS: 16.17 на выходе)")
 ap.add_argument("--spray_kg_s", type=float, default=0.25, help="впрыск воды в пар (сумма), кг/с; считается перед SH1 (IIIb)")
 ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
@@ -84,15 +86,24 @@ def n_cells(length, res=R):
 
 # ---------------------------------------------------------------- режим работы
 P_ABS = 112000 - 200             # на ВЫХОДЕ, Па абс.: вход 1.120 бар минус оценка перепада ~2 мбар
-# Состав (пользователь, верх CFB, 757 °C): N2 66.96, CO2 14.12, H2O 16.42, O2 2.50 % об.,
-# 10149 кмоль/ч = 227 332 Нм³/ч (влажн.). Свойства смеси при ~650 °C.
-X_CO2, X_H2O = 0.1412, 0.1642
-M_GAS = 28.73                   # кг/кмоль
-KMOL_H = 10149.0
-MDOT = KMOL_H * M_GAS / 3600    # кг/с (~81.0)
+# Состав (пользователь, верх CFB): N2 6796, CO2 1433.1, H2O 1667, O2 253.42 кмоль/ч (O2 2.5 %).
+# O2 доводится до --o2 (по умолчанию 2.8 %) добавкой воздуха; --extra_water_t_h — неучтённая вода в топку.
+_kmol = {"N2": 6796.0, "CO2": 1433.1, "H2O": 1667.0, "O2": 253.42}
+_kmol["H2O"] += a.extra_water_t_h * 1000 / 18.015
+_tot = sum(_kmol.values())
+_add_o2 = max(0.0, (a.o2 * _tot - _kmol["O2"]) / (1 - 4.76 * a.o2))
+_kmol["O2"] += _add_o2
+_kmol["N2"] += 3.76 * _add_o2
+_MW = {"N2": 28.013, "CO2": 44.01, "H2O": 18.015, "O2": 31.999}
+_CP = {"N2": 1.12, "CO2": 1.21, "H2O": 2.21, "O2": 1.06}      # кДж/(кг·К) при ~650 °C
+KMOL_H = sum(_kmol.values())
+X_CO2, X_H2O = _kmol["CO2"] / KMOL_H, _kmol["H2O"] / KMOL_H
+_mass = {k: _kmol[k] * _MW[k] for k in _kmol}
+M_GAS = round(sum(_mass.values()) / KMOL_H, 3)  # кг/кмоль
+MDOT = KMOL_H * M_GAS / 3600    # кг/с
 T_IN = 750 + 273.15            # смесь газа от циклонов (DCS: 754 и 746 °C)
 T_WALL = 250 + 273.15
-CP_GAS = 1250.0
+CP_GAS = round(1000 * sum(_mass[k] * _CP[k] for k in _mass) / sum(_mass.values()), 1)
 MU = 3.7e-5
 PR = 0.72
 K_GAS = 0.064                   # теплопроводность газа ~650 °C, Вт/(м·К)
@@ -923,7 +934,7 @@ runApplication reconstructPar -latestTime
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
     f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
     f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
-    f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\n"
+    f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\nextra_water_t_h {a.extra_water_t_h}\no2 {a.o2}\n"
     f"probes {','.join(n for n, _ in PROBE_LIST)}\n"
     + "".join(f"Ta_{n} {TA[n] + 273.15}\nAv_{n} {Av}\n" for n, _, _, _, Av, _ in [(i[0], 0, 0, 0, i[4], 0) for i in info])
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
