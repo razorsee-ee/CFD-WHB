@@ -1,15 +1,15 @@
 #!/bin/bash
 # Test run on a fresh cloud server (Hetzner, AWS ...) with Ubuntu 22.04/24.04, as root or with sudo.
 #
-#   bash tools/cloud_test.sh            # full test, ~30-60 min on 16 cores
+#   bash tools/cloud_test.sh            # ~20 min on 16 vCPU (Hetzner CPX62/CCX53)
 #
 # 1) installs OpenFOAM-12 (package) and python if missing
 # 2) speed test tools/bench.sh on 4, 8, ... up to all cores (0.2 m mesh, 300 iterations each)
-# 3) real calibrated case on a 0.15 m mesh (~330 000 cells), 3 coupled passes (3000+1500+1500),
+# 3) real calibrated case on a 0.2 m mesh (139 000 cells; RES=0.15 -> 337 000), 3 coupled passes (3000+1500+1500),
 #    on the physical cores -> grid check against the 0.3 m calibration (gas 618 C, steam 441 C)
 # 4) packs the small results (summaries, pictures, logs; no fields) into ~/cloud_test_results.tgz
 #
-# Environment overrides: RES (0.15), NP (physical cores), PASSES (3), SKIP_BENCH=1, PORT (8080).
+# Environment overrides: RES (0.2), NP (physical cores), PASSES (3), SKIP_BENCH=1, PORT (8080).
 #
 # Live view while it runs: a status page (stage, iteration, convergence plots, bench table, pictures
 # after each pass) refreshed every 30 s, served on the server's localhost:PORT only. From your computer:
@@ -74,7 +74,7 @@ status_page() {
 }
 stage "starting"
 status_page
-( while true; do status_page; sleep 30; done ) &
+( while kill -0 $$ 2>/dev/null; do status_page; sleep 30; done ) &
 LOOP_PID=$!
 trap 'kill $LOOP_PID 2>/dev/null' EXIT
 if ! ss -ltn 2>/dev/null | grep -q ":$PORT "; then
@@ -106,7 +106,7 @@ if [ -z "${SKIP_BENCH:-}" ]; then
 fi
 
 # ---------------------------------------------------------------- 3) real case
-RES=${RES:-0.15}
+RES=${RES:-0.2}
 PASSES=${PASSES:-3}
 NAME="cloud_k_now_${RES}"
 stage "2/2 calibrated case, mesh $RES m, $NP processes, $PASSES passes"
