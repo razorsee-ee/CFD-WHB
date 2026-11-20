@@ -48,7 +48,7 @@ ap.add_argument("--bundle_fac", type=float, default=1.0,
 ap.add_argument("--ta", default="", help="температуры пара SH1,SH2,SH3,SH4, °C (по умолчанию 413,361,312,270)")
 ap.add_argument("--absorb", type=float, default=None,
                 help="коэффициент поглощения газа+пыли для P1, 1/м (по умолчанию — из пыли; 0 — без излучения)")
-ap.add_argument("--scenario", choices=["A", "B"], default="B",
+ap.add_argument("--scenario", choices=["A", "B"], default="A",
                 help="A — по корреляциям (Гаддис, Жукаускас); B — по CFD куска пучка (docs/CALIBRATION.md)")
 a = ap.parse_args()
 R = a.res
@@ -371,7 +371,8 @@ sigma = 1 - g.D_TUBE / g.S_TRANS                 # живое сечение п�
 # сценарий B — множители по нестационарному CFD куска пучка (Δp x0.72, α x0.71).
 EU_CORR = {"EVAP": 0.18, "SH": 0.159}
 DP_FAC, H_FAC = {"A": (1.0, 1.0), "B": (0.72, 0.71)}[a.scenario]
-H_STEAM = 600.0                                  # α со стороны пара (на наружную поверхность), SH
+# α со стороны пара на наружную поверхность: ~600 при 13.9 кг/с (оценка: 138 труб ~30 мм), ~ расход^0.8
+H_STEAM = 600.0 * (a.steam_kg_s / 13.9) ** 0.8
 
 
 def htc_table():
