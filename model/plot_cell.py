@@ -1,8 +1,8 @@
-"""Картинки поля скорости и температуры в проверочном куске пучка.
+"""Velocity and temperature fields in the tube-bank check piece.
 
-python model/plot_cell.py <png> <кейс1> [<кейс2> ...]
-Кейс должен быть в ascii с полями C (writeCellCentres), U, T в последнем времени
-(model/cell_ascii.sh готовит это).
+python model/plot_cell.py <png> <case1> [<case2> ...]
+Cases must contain ascii fields C (writeCellCentres), U, T at the latest time
+(model/cell_ascii.sh prepares that).
 """
 import re
 import sys
@@ -31,7 +31,7 @@ def latest(case):
     return max(ts, key=lambda p: float(p.name))
 
 
-# одинаковые шкалы для всех картинок
+# same colour scales for all images
 U_LEV = np.linspace(0, 20.5, 42)
 T_LEV = np.linspace(400, 710, 63)
 out = sys.argv[1]
@@ -44,11 +44,11 @@ for i, c in enumerate(cases):
     T = read_field(t / "T") - 273.15
     x, y = C[:, 0], C[:, 1]
     tri = mtri.Triangulation(x, y)
-    # убрать треугольники, которые перекрывают трубы (длинные рёбра)
+    # drop triangles that bridge over the tubes (long edges)
     xt, yt = x[tri.triangles], y[tri.triangles]
     edge = np.max(np.hypot(xt - np.roll(xt, 1, 1), yt - np.roll(yt, 1, 1)), axis=1)
     tri.set_mask(edge > 0.012)
-    for j, (f, lab, cm, lv) in enumerate(((np.linalg.norm(U, axis=1), "|U|, м/с", "viridis", U_LEV),
+    for j, (f, lab, cm, lv) in enumerate(((np.linalg.norm(U, axis=1), "|U|, m/s", "viridis", U_LEV),
                                            (T, "T, °C", "inferno", T_LEV))):
         ax = axes[2 * i + j]
         cs = ax.tricontourf(tri, np.clip(f, lv[0], lv[-2]), lv, cmap=cm)

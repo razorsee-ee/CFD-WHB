@@ -1,11 +1,11 @@
-"""Слежение за расчётом котла: графики по итерациям (png + html с автообновлением).
+"""Run monitoring for the boiler case: plots vs iteration (png + self-refreshing html).
 
-python model/monitor.py <папка_кейса> [--loop 30] [--out <папка_для_картинок>]
+python model/monitor.py <case_dir> [--loop 30] [--out <dir_for_images>]
 
-Рисует: невязки; температуры газа (вход газохода внизу, перед испарителем, на выходе);
-среднюю скорость Ux и долю газа через каждый пучок; перепад давления вход-выход.
-С --loop N перерисовывает каждые N секунд, пока не остановите (Ctrl+C).
-Открыть в браузере (Windows):  explorer.exe "$(cygpath -w <папка>/monitor.html)"
+Plots: residuals; gas temperatures (bottom of the vertical duct, before the evaporator, outlet);
+gas share through each bundle; pressure drop inlet-outlet.
+With --loop N redraws every N seconds until stopped (Ctrl+C).
+Open in a browser (Windows):  explorer.exe "$(cygpath -w <dir>/monitor.html)"
 """
 import re
 import sys
@@ -49,7 +49,7 @@ def info():
 
 
 def series(name, fname, col=1):
-    """Склеить данные функции из всех папок времени (перезапуски), вернуть (итерации, значения)."""
+    """Concatenate function-object data from all time folders (restarts); return (iterations, values)."""
     files = sorted(pp.glob(f"{name}/*/{fname}"), key=lambda p: float(p.parent.name))
     x, y = [], []
     for f in files:
@@ -58,7 +58,7 @@ def series(name, fname, col=1):
                 continue
             v = [float(t) for t in NUM.findall(l)]
             if len(v) > col:
-                if x and v[0] <= x[-1]:          # перезапуск: отбросить перекрытие
+                if x and v[0] <= x[-1]:          # restart: drop the overlap
                     while x and x[-1] >= v[0]:
                         x.pop(); y.pop()
                 x.append(v[0]); y.append(v[col])
@@ -95,15 +95,15 @@ def draw():
     for n, (x, y) in residuals().items():
         if y:
             a.semilogy(x, y, label=n, lw=1)
-    a.set_title("Невязки (начальные)"); a.legend(fontsize=8); a.grid(alpha=0.3, which="both")
+    a.set_title("Residuals (initial)"); a.legend(fontsize=8); a.grid(alpha=0.3, which="both")
     a = ax[0, 1]
-    for nm, lab in (("T_shaftExit", "низ газохода"), ("T_beforeEvap", "перед испарителем"),
-                    ("outletT", "выход котла")):
+    for nm, lab in (("T_shaftExit", "bottom of vertical duct"), ("T_beforeEvap", "before evaporator"),
+                    ("outletT", "boiler outlet")):
         x, y = series(nm, "surfaceFieldValue.dat")
         if y:
             a.plot(x, [v - 273.15 for v in y], label=f"{lab}: {y[-1] - 273.15:.0f} °C")
     a.axhline(700, color="gray", ls=":", lw=1); a.axhline(600, color="gray", ls="--", lw=1)
-    a.set_title("Температура газа, °C (пунктир: установка 700 / 600)"); a.legend(fontsize=8); a.grid(alpha=0.3)
+    a.set_title("Gas temperature, C (dashed: plant ~700 / 618)"); a.legend(fontsize=8); a.grid(alpha=0.3)
     a = ax[1, 0]
     A = g.BUNDLE_DEPTH * g.W
     for n, _, _ in g.BUNDLES:
@@ -114,15 +114,15 @@ def draw():
             fr = [P_ABS * M / (8314 * T[i]) * ux[i] * A / MDOT * 100 for i in range(k)]
             a.plot(x[:k], fr, label=f"{n}: {fr[-1]:.0f} %")
     a.axhline(100, color="gray", ls=":", lw=1)
-    a.set_title("Доля газа через пучок, %"); a.legend(fontsize=8); a.grid(alpha=0.3)
+    a.set_title("Gas share through bundle, %"); a.legend(fontsize=8); a.grid(alpha=0.3)
     a = ax[1, 1]
     x, p = series("pressures", "surfaceFieldValue.dat")
     if p:
-        a.plot(x, [v - P_ABS for v in p], color="tab:purple", label=f"{p[-1] - P_ABS:.0f} Па")
+        a.plot(x, [v - P_ABS for v in p], color="tab:purple", label=f"{p[-1] - P_ABS:.0f} Pa")
         a.legend(fontsize=8)
-    a.set_title("Давление на входе минус на выходе, Па"); a.grid(alpha=0.3)
+    a.set_title("Pressure inlet minus outlet, Pa"); a.grid(alpha=0.3)
     for a in ax.flat:
-        a.set_xlabel("итерация")
+        a.set_xlabel("iteration")
     fig.suptitle(f"{case.name}   {time.strftime('%H:%M:%S')}", fontsize=10)
     fig.tight_layout()
     fig.savefig(out / "monitor.png", dpi=90)
@@ -136,9 +136,9 @@ def draw():
 while True:
     try:
         draw()
-        print(f"{time.strftime('%H:%M:%S')} обновлено: {out / 'monitor.png'}")
-    except Exception as e:      # файлы могут писаться в этот момент — попробуем в следующий раз
-        print("пропуск:", e)
+        print(f"{time.strftime('%H:%M:%S')} updated: {out / 'monitor.png'}")
+    except Exception as e:      # files may be being written right now - try again next time
+        print("skipped:", e)
     if not loop:
         break
     time.sleep(loop)

@@ -1,13 +1,13 @@
-"""Проверка пористой модели пучка: кусок реального пучка против пористого блока.
+"""Check of the porous bundle model: a piece of the real tube bank against a porous block.
 
-python model/make_cell_case.py <папка> --mode resolved|porous --U0 7 [--bundle SH|EVAP]
+python model/make_cell_case.py <dir> --mode resolved|porous --U0 7 [--bundle SH|EVAP]
 
-2D-канал (x — по ходу газа, y — поперёк, z — толщина 1 ячейка, empty) высотой
-в один поперечный шаг S1 = 100 мм, сверху и снизу — symmetryPlane (бесконечная
-решётка). resolved: трубы 38 мм с O-сеткой до стенки (y+ ~ 1, kOmegaSST);
-porous: тот же канал, пучок заменён пористой зоной с теми же f_x, Av, htc(U),
-что и в модели котла (model/make_case.py).
-Стенка труб и Ta пористой зоны — одна и та же температура T_TUBE.
+2D channel (x - gas flow, y - across, z - one cell thick, empty), one transverse pitch
+S1 = 100 mm high (or --ncol pitches), symmetryPlane top/bottom (infinite array) or cyclic
+(--ncol > 1). resolved: 38 mm tubes with an O-grid to the wall (y+ ~ 1, kOmegaSST);
+porous: same channel, the bundle replaced by a porous zone with the same f_x, Av, htc(U)
+as in the boiler model (model/make_case.py).
+Tube wall and porous-zone Ta are the same temperature T_TUBE.
 """
 import argparse
 import math
@@ -21,20 +21,20 @@ import geometry as g
 ap = argparse.ArgumentParser()
 ap.add_argument("case")
 ap.add_argument("--mode", choices=["resolved", "porous"], required=True)
-ap.add_argument("--U0", type=float, default=7.0, help="скорость перед пучком, м/с")
+ap.add_argument("--U0", type=float, default=7.0, help="velocity upstream of the bundle, m/s")
 ap.add_argument("--bundle", choices=["SH", "EVAP"], default="SH")
-ap.add_argument("--eu", type=float, default=0.25, help="Эйлер на ряд (пористый)")
-ap.add_argument("--hfac", type=float, default=1.0, help="множитель к htc (пористый)")
-ap.add_argument("--ncol", type=int, default=1, help="колонн труб поперёк; >1 — периодические границы")
-ap.add_argument("--transient", type=float, default=0, help="нестационарный расчёт до этого времени, с")
+ap.add_argument("--eu", type=float, default=0.25, help="Euler number per row (porous)")
+ap.add_argument("--hfac", type=float, default=1.0, help="htc multiplier (porous)")
+ap.add_argument("--ncol", type=int, default=1, help="tube columns across; >1 - periodic boundaries")
+ap.add_argument("--transient", type=float, default=0, help="transient run up to this time, s")
 ap.add_argument("--iters", type=int, default=4000)
 ap.add_argument("--np", type=int, default=4)
-ap.add_argument("--nt", type=int, default=24, help="ячеек на четверть окружности")
-ap.add_argument("--nr", type=int, default=40, help="ячеек по радиусу")
+ap.add_argument("--nt", type=int, default=24, help="cells per quarter of the circumference")
+ap.add_argument("--nr", type=int, default=40, help="cells along the radius")
 a = ap.parse_args()
 
 P_ABS = 112000
-# Состав (пользователь): N2 66.96, CO2 14.12, H2O 16.42, O2 2.50 % об.; свойства смеси при ~650 °C
+# Composition (user, early version): N2 66.96, CO2 14.12, H2O 16.42, O2 2.50 vol %; properties at ~650 C
 M_GAS, CP, MU, PR, K_GAS = 28.73, 1250.0, 3.7e-5, 0.72, 0.064
 T_IN = 700 + 273.15
 T_TUBE = 400 + 273.15
@@ -43,13 +43,13 @@ r = D / 2
 DZ = 0.01
 X_IN, X_OUT_LEN = 0.3, 1.5
 
-if a.bundle == "SH":   # 4 группы по 3 трубы, шаг 60 в группе, 100 между группами
+if a.bundle == "SH":   # 4 groups of 3 tubes, pitch 60 in a group, 100 between groups
     xc = [gi * 0.22 + k * 0.06 for gi in range(4) for k in range(3)]
-else:                  # испаритель: 4 трубы с шагом 88
+else:                  # evaporator: 4 tubes at 88 mm pitch
     xc = [k * 0.088 for k in range(4)]
 N = len(xc)
 
-# коробки вокруг труб: границы посередине между соседними трубами, но не дальше 0.03
+# boxes around the tubes: edges half-way between neighbouring tubes, but not farther than 0.03
 boxes = []
 for i, x in enumerate(xc):
     left = min(0.03, (x - xc[i - 1]) / 2) if i > 0 else 0.03
@@ -81,7 +81,7 @@ def write(rel, body, cls="dictionary"):
 
 
 verts, vid = [], {}
-YO = 0.0   # сдвиг колонны по y
+YO = 0.0   # column offset along y
 
 
 def V(x, y, z):
@@ -98,8 +98,8 @@ patches = {"inlet": [], "outlet": [], "tubes": [], "sym": []}
 
 
 def block(quad, n1, n2, grad, zone="", faces=None):
-    """quad: 4 точки (x, y) против часовой; x1 = p0->p1, x2 = p0->p3.
-    faces: {имя_патча: [индексы сторон 0:p0p1 1:p1p2 2:p2p3 3:p3p0]}"""
+    """quad: 4 points (x, y) anticlockwise; x1 = p0->p1, x2 = p0->p3.
+    faces: {patch_name: [side indices 0:p0p1 1:p1p2 2:p2p3 3:p3p0]}"""
     (ax, ay), (bx, by), (dx, dy) = quad[0], quad[1], quad[3]
     if (bx - ax) * (dy - ay) - (by - ay) * (dx - ax) < 0:
         raise ValueError("quad must be counter-clockwise")
@@ -114,30 +114,30 @@ def block(quad, n1, n2, grad, zone="", faces=None):
 
 n_t, n_r = a.nt, a.nr
 c45 = r / math.sqrt(2)
-rad_grad = 30.0     # отношение размеров ячеек: у границы коробки / у трубы
+rad_grad = 30.0     # cell size ratio: at the box edge / at the tube
 
 def build_column():
     global ny_io
     if a.mode == "resolved":
         for (bl, br), x in zip(boxes, xc):
             yb, yt = -S1 / 2, S1 / 2
-            C = {  # точки на окружности и углы коробки
+            C = {  # points on the circle and box corners
                 "c_ru": (x + c45, c45), "c_lu": (x - c45, c45), "c_ld": (x - c45, -c45), "c_rd": (x + c45, -c45),
                 "b_ru": (br, yt), "b_lu": (bl, yt), "b_ld": (bl, yb), "b_rd": (br, yb),
             }
-            # блоки: x1 — по окружности (против часовой), x2 — радиально наружу
-            # правый: c_rd -> c_ru (по дуге), наружу к b_rd/b_ru
+            # blocks: x1 - along the arc (anticlockwise), x2 - radially outwards
+            # right block: c_rd -> c_ru (along the arc), outwards to b_rd/b_ru
             quads = {
                 "R": (C["c_rd"], C["c_ru"], C["b_ru"], C["b_rd"]),
                 "T": (C["c_ru"], C["c_lu"], C["b_lu"], C["b_ru"]),
                 "L": (C["c_lu"], C["c_ld"], C["b_ld"], C["b_lu"]),
                 "B": (C["c_ld"], C["c_rd"], C["b_rd"], C["b_ld"]),
             }
-            # x1 вдоль дуги против часовой, x2 наружу: x1 x x2 = -z, поэтому меняем местами
-            # первую сторону: берём x1 = наружу, x2 = вдоль дуги (p0 -> p3 вдоль дуги)
+            # x1 along the arc anticlockwise, x2 outwards gives x1 x x2 = -z, so swap:
+            # take x1 = outwards, x2 = along the arc (p0 -> p3 along the arc)
             for k, (p0, p1, p2, p3) in quads.items():
-                q = (p0, p3, p2, p1)       # p0 -> p3(наружу) ... против часовой
-                # стороны q: 0: p0->p3 (радиальная), 1: p3->p2 (сторона коробки), 2: p2->p1 (радиальная), 3: p1->p0 (дуга)
+                q = (p0, p3, p2, p1)       # p0 -> p3 (outwards) ... anticlockwise
+                # sides of q: 0: p0->p3 (radial), 1: p3->p2 (box side), 2: p2->p1 (radial), 3: p1->p0 (arc)
                 faces = {"tubes": [3]}
                 if k in ("T", "B"):
                     faces["sym"] = [1]
@@ -147,7 +147,7 @@ def build_column():
                 mx, my = x + r * math.cos(math.radians(ang)), r * math.sin(math.radians(ang))
                 for z in (0, DZ):
                     edges.append(f"    arc {V(p[0], p[1], z)} {V(q_[0], q_[1], z)} ({mx:.12g} {my + YO:.12g} {z:g})")
-        # промежутки между группами
+        # gaps between tube groups
         for i in range(N - 1):
             g0, g1 = boxes[i][1], boxes[i + 1][0]
             if g1 - g0 > 1e-9:
@@ -161,7 +161,7 @@ def build_column():
         block(((x0_b, -S1 / 2), (x1_b, -S1 / 2), (x1_b, S1 / 2), (x0_b, S1 / 2)), nx, ny_io, "(1 1 1)",
               zone="bundle", faces={"sym": [0, 2]})
 
-    # вход и выход
+    # inlet and outlet
     block(((x0_b - X_IN, -S1 / 2), (x0_b, -S1 / 2), (x0_b, S1 / 2), (x0_b - X_IN, S1 / 2)), 40, ny_io,
           "(0.1 1 1)", faces={"sym": [0, 2], "inlet": [3]})
     block(((x1_b, -S1 / 2), (x1_b + X_OUT_LEN, -S1 / 2), (x1_b + X_OUT_LEN, S1 / 2), (x1_b, S1 / 2)), 120, ny_io,
@@ -174,7 +174,7 @@ for _j in range(a.ncol):
 YO = 0.0
 
 vt = "\n".join(f"    ({x:.12g} {y:.12g} {z:.12g})" for x, y, z in verts)
-# плоскость симметрии должна быть плоской: делим на верх и низ
+# a symmetry plane must be planar: split into top and bottom
 Y_TOP = (a.ncol - 0.5) * S1
 patches["symTop"] = [f for f in patches["sym"] if abs(verts[f[0]][1] - Y_TOP) < 1e-6]
 patches["symBottom"] = [f for f in patches["sym"] if abs(verts[f[0]][1] + S1 / 2) < 1e-6]
@@ -209,7 +209,7 @@ boundary
 defaultPatch {{ name frontAndBack; type empty; }}
 """)
 
-# ---------------------------------------------------------------- физика
+# ---------------------------------------------------------------- physics
 write("constant/physicalProperties", f"""thermoType
 {{
     type heRhoThermo; mixture pureMixture; transport const; thermo hConst;
@@ -227,12 +227,12 @@ write("constant/g", "dimensions [0 1 -2 0 0 0 0];\nvalue (0 0 0);\n", cls="unifo
 write("constant/pRef", f"dimensions [1 -1 -2 0 0 0 0];\nvalue {P_ABS};\n", cls="uniformDimensionedScalarField")
 
 if a.mode == "porous":
-    # те же формулы, что в make_case.py
+    # same formulas as in make_case.py
     sigma = 1 - D / S1
     EU = a.eu
     nt_ = N
     fx = nt_ * EU / (L_ZONE * sigma ** 2)
-    Av = nt_ * math.pi * D / (L_ZONE * S1)   # не зависит от числа колонн   # на единицу объёма канала высотой S1
+    Av = nt_ * math.pi * D / (L_ZONE * S1)   # per unit channel volume; independent of the number of columns
     rho = P_ABS * M_GAS / (8314.0 * (650 + 273.15))
     nu = MU / rho
     tab = []
@@ -290,7 +290,7 @@ def bcs(inlet, outlet, wall):
     return d
 
 
-VY = 0.02 * a.U0 if a.ncol > 1 else 0.0   # наклон потока ~1° — сломать симметрию
+VY = 0.02 * a.U0 if a.ncol > 1 else 0.0   # ~1 deg inflow angle to break the symmetry
 field("U", "volVectorField", "[0 1 -1 0 0 0 0]", f"uniform ({a.U0} 0 0)",
       bcs(f"type fixedValue; value uniform ({a.U0} {VY:g} 0);", "type pressureInletOutletVelocity; value uniform (0 0 0);",
           "type noSlip;"))
@@ -391,4 +391,4 @@ relaxationFactors
 write("system/decomposeParDict", f"numberOfSubdomains {a.np};\ndecomposer scotch;\n")
 (case / "case_info.txt").write_text(
     f"ncol {a.ncol}\nntubes {N}\nT_IN {T_IN}\nT_TUBE {T_TUBE}\nCP {CP}\nS1 {S1}\nDZ {DZ}\nP_ABS {P_ABS}\n")
-print(f"{a.mode} {a.bundle} U0={a.U0}: N={N}, L_zone={L_ZONE:.3f} м, вершин {len(verts)}, блоков {len(blocks)}")
+print(f"{a.mode} {a.bundle} U0={a.U0}: N={N}, L_zone={L_ZONE:.3f} m, vertices {len(verts)}, blocks {len(blocks)}")

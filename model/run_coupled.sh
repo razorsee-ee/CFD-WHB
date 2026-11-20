@@ -1,10 +1,10 @@
 #!/bin/bash
-# Расчёт котла с увязкой температуры пара: после каждого захода температуры пара по ступеням
-# пересчитываются из тепла пучков (50 т/ч, противоток), следующий заход стартует с прошлого решения.
+# Boiler run with steam-temperature coupling: after each pass the steam temperatures per stage
+# are recomputed from the bundle heat (counterflow); the next pass starts from the previous solution.
 #
-#   bash model/run_coupled.sh <папка> <ядер> <ячейка_м> <заходов> [аргументы make_case.py ...]
+#   bash model/run_coupled.sh <dir> <cores> <cell_m> <passes> [make_case.py arguments ...]
 #
-# Результат: <папка>_1 ... <папка>_N, в каждой summary.txt; итог — summary.txt последнего захода.
+# Result: <dir>_1 ... <dir>_N, each with summary.txt; the final answer is summary.txt of the last pass.
 
 BASE=$1; NP=$2; RES=$3; NOUT=$4; shift 4
 EXTRA="$*"
@@ -19,7 +19,7 @@ PREV=""
 for k in $(seq 1 "$NOUT"); do
     DIR="${BASE}_$k"
     ITERS=$([ "$k" = 1 ] && echo "${ITERS1:-3000}" || echo "${ITERSN:-1500}")
-    echo "$(date +%H:%M) заход $k/$NOUT: $DIR ${TA:+(пар: $TA)}"
+    echo "$(date +%H:%M) pass $k/$NOUT: $DIR ${TA:+(steam: $TA)}"
     "$PY" "$REPO/model/make_case.py" "$DIR" --res "$RES" --ny "$NY" --np "$NP" --iters "$ITERS" \
         ${TA:+--ta $TA} $EXTRA > "$DIR.make.txt" 2>&1 || { cat "$DIR.make.txt"; exit 1; }
     (
@@ -33,11 +33,11 @@ for k in $(seq 1 "$NOUT"); do
     )
     "$PY" "$REPO/model/whb_summary.py" "$DIR" > "$DIR/summary.txt" 2>&1
     cat "$DIR/summary.txt"
-    # картинки (если есть matplotlib): ход расчёта и стандартные виды
+    # images (if matplotlib is available): convergence and standard views
     "$PY" "$REPO/model/monitor.py" "$DIR" > /dev/null 2>&1
-    "$PY" "$REPO/model/views.py" "$DIR" > "$DIR/views.log" 2>&1 && echo "Виды: $DIR/views.html"
+    "$PY" "$REPO/model/views.py" "$DIR" > "$DIR/views.log" 2>&1 && echo "Views: $DIR/views.html"
     NEXT=$(cat "$DIR/ta_next.txt" 2>/dev/null)
-    # нижняя релаксация температуры пара 50/50 (иначе заходы раскачиваются)
+    # under-relaxation of steam temperatures 50/50 (otherwise passes oscillate)
     OLD=${TA:-413,361,312,270}
     [ -n "$NEXT" ] && TA=$("$PY" -c "o=[float(x) for x in '$OLD'.split(',')]; n=[float(x) for x in '$NEXT'.split(',')]; print(','.join(f'{(a+b)/2:.1f}' for a,b in zip(o,n)))")
     PREV="$DIR"

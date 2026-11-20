@@ -1,11 +1,11 @@
-"""Генератор кейса OpenFOAM-12 для котла-утилизатора (WHB).
+"""OpenFOAM-12 case generator for the waste heat boiler (WHB).
 
-python model/make_case.py <папка_кейса> [--res 0.3] [--ny 12] [--np 4]
+python model/make_case.py <case_dir> [--res 0.3] [--ny 12] [--np 4] [options, see --help]
 
-Сетка: blockMesh по контуру сечения (x-z), вытянутому по ширине y; бункеры
-сужаются по ширине к дну. Пучки — пористые cellZone (границы пучков совпадают
-с гранями ячеек), с сопротивлением DarcyForchheimer и отбором тепла
-heatTransfer (htc по корреляции Жукаускаса как функция скорости).
+Mesh: blockMesh of the side contour (x-z) extruded across the width y; the hoppers narrow
+towards the bottom across the width as well. Bundles are porous cellZones (bundle edges
+coincide with cell faces) with DarcyForchheimer resistance and heat extraction via
+heatTransfer (htc from the Zukauskas correlation as a function of velocity, plus radiation).
 """
 import argparse
 import math
@@ -19,37 +19,37 @@ import geometry as g
 
 ap = argparse.ArgumentParser()
 ap.add_argument("case")
-ap.add_argument("--res", type=float, default=0.3, help="размер ячейки в сечении, м")
-ap.add_argument("--ny", type=int, default=12, help="ячеек по ширине")
-ap.add_argument("--np", type=int, default=4, help="число процессов")
+ap.add_argument("--res", type=float, default=0.3, help="cell size in the side section, m")
+ap.add_argument("--ny", type=int, default=12, help="cells across the width")
+ap.add_argument("--np", type=int, default=4, help="number of processes")
 ap.add_argument("--iters", type=int, default=3000)
 ap.add_argument("--bundle_R", type=float, default=0.0,
-                help="тепловое сопротивление налёта на трубах пучков, м²·К/Вт")
+                help="thermal resistance of tube deposits in the bundles, m2K/W")
 ap.add_argument("--dust_frac", type=float, default=0.4,
-                help="доля от 50 т/ч золы, пролетающая первый бункер в пучки")
-ap.add_argument("--hopper_fill", type=float, default=0.10, help="заполнение бункеров золой, доля объёма")
-ap.add_argument("--hopper2_fill", type=float, default=None, help="заполнение правого бункера (по умолчанию = hopper_fill)")
+                help="share of the 50 t/h of ash that passes the first hopper into the bundles")
+ap.add_argument("--hopper_fill", type=float, default=0.10, help="ash fill of the hoppers, volume fraction")
+ap.add_argument("--hopper2_fill", type=float, default=None, help="ash fill of the right hopper (default = hopper_fill)")
 ap.add_argument("--skirts", default="",
-                help="вертикальные юбки от низа пучков вниз, 'место:глубина_м,...'; места: evap (за испарителем), "
-                     "sh1, sh2, sh3 (за этим пучком), sh4 (между SH4 и стенкой), sh4end (сразу за SH4, до стенки бункера)")
-ap.add_argument("--extra_water_t_h", type=float, default=14.0, help="неучтённая вода в топку, т/ч (добавляется к H2O газа)")
-ap.add_argument("--extra_air_nm3_h", type=float, default=10000.0, help="неучтённый воздух (горелки), Нм³/ч")
-ap.add_argument("--extra_n2_nm3_h", type=float, default=2000.0, help="азот из уплотнений, Нм³/ч")
-ap.add_argument("--o2", type=float, default=None, help="довести O2 во влажном газе до этой доли (по умолчанию — как получится)")
-ap.add_argument("--steam_kg_s", type=float, default=15.9, help="пар через пароперегреватели (до впрыска), кг/с (DCS: 16.17 на выходе)")
-ap.add_argument("--spray_kg_s", type=float, default=0.25, help="впрыск воды в пар (сумма), кг/с; считается перед SH1 (IIIb)")
-ap.add_argument("--spray_h", type=float, default=1087.0, help="энтальпия воды впрыска, кДж/кг (1087 — вода из барабана 250 °C)")
+                help="vertical skirts from the bundle bottoms downwards, 'place:depth_m,...'; places: evap (after the evaporator), "
+                     "sh1, sh2, sh3 (after that bundle), sh4 (between SH4 and the wall), sh4end (right behind SH4, down to the hopper wall)")
+ap.add_argument("--extra_water_t_h", type=float, default=14.0, help="unmetered water into the furnace, t/h (added to gas H2O)")
+ap.add_argument("--extra_air_nm3_h", type=float, default=10000.0, help="unmetered air (burners), Nm3/h")
+ap.add_argument("--extra_n2_nm3_h", type=float, default=2000.0, help="nitrogen from seals, Nm3/h")
+ap.add_argument("--o2", type=float, default=None, help="bring wet O2 up to this fraction by extra air (default: as it comes out)")
+ap.add_argument("--steam_kg_s", type=float, default=15.9, help="steam through the superheaters before sprays, kg/s (DCS: 16.17 at outlet)")
+ap.add_argument("--spray_kg_s", type=float, default=0.25, help="spray water into steam (total), kg/s; applied before SH1 (IIIb)")
+ap.add_argument("--spray_h", type=float, default=1087.0, help="spray water enthalpy, kJ/kg (1087 = drum water at 250 C)")
 ap.add_argument("--duct_R", type=float, default=None,
-                help="отложения на стенках газоходов (наклонный + вертикальный), м²·К/Вт; по умолчанию = wall_R")
+                help="deposits on the duct walls (inclined + vertical duct), m2K/W; default = wall_R")
 ap.add_argument("--wall_R", type=float, default=0.0,
-                help="тепловое сопротивление отложений на мембранных стенках, м²·К/Вт (0 — чистые)")
+                help="thermal resistance of deposits on the membrane walls, m2K/W (0 = clean)")
 ap.add_argument("--bundle_fac", type=float, default=1.0,
-                help="множитель к α газа в пучках (загрязнение труб и неопределённость)")
-ap.add_argument("--ta", default="", help="температуры пара SH1,SH2,SH3,SH4, °C (по умолчанию 413,361,312,270)")
+                help="multiplier on the gas-side htc in the bundles (fouling and uncertainty)")
+ap.add_argument("--ta", default="", help="steam temperatures SH1,SH2,SH3,SH4, C (default 413,361,312,270)")
 ap.add_argument("--absorb", type=float, default=None,
-                help="коэффициент поглощения газа+пыли для P1, 1/м (по умолчанию — из пыли; 0 — без излучения)")
+                help="gas+dust absorption coefficient for P1, 1/m (default: from dust load; 0 = no radiation)")
 ap.add_argument("--scenario", choices=["A", "B"], default="A",
-                help="A — по корреляциям (Гаддис, Жукаускас); B — по CFD куска пучка (docs/CALIBRATION.md)")
+                help="A: correlations (Gaddis, Zukauskas); B: transient tube-bank CFD (discarded, docs/CALIBRATION.md)")
 a = ap.parse_args()
 R = a.res
 
@@ -86,10 +86,10 @@ def n_cells(length, res=R):
     return max(1, round(length / res))
 
 
-# ---------------------------------------------------------------- режим работы
-P_ABS = 112000 - 200             # на ВЫХОДЕ, Па абс.: вход 1.120 бар минус оценка перепада ~2 мбар
-# Состав (пользователь, верх CFB): N2 6796, CO2 1433.1, H2O 1667, O2 253.42 кмоль/ч (O2 2.5 %).
-# O2 доводится до --o2 (по умолчанию 2.8 %) добавкой воздуха; --extra_water_t_h — неучтённая вода в топку.
+# ---------------------------------------------------------------- operating point
+P_ABS = 112000 - 200             # at the OUTLET, Pa abs: inlet 1.120 bar minus ~2 mbar estimated drop
+# Composition (user, top of CFB): N2 6796, CO2 1433.1, H2O 1667, O2 253.42 kmol/h (O2 2.5 %).
+# Plus unmetered burner air, seal N2 and furnace water; optional --o2 adds air to reach a given O2.
 _kmol = {"N2": 6796.0, "CO2": 1433.1, "H2O": 1667.0, "O2": 253.42}
 _kmol["H2O"] += a.extra_water_t_h * 1000 / 18.015
 _air = a.extra_air_nm3_h / 22.414
@@ -100,40 +100,40 @@ _add_o2 = max(0.0, (a.o2 * _tot - _kmol["O2"]) / (1 - 4.76 * a.o2)) if a.o2 else
 _kmol["O2"] += _add_o2
 _kmol["N2"] += 3.76 * _add_o2
 _MW = {"N2": 28.013, "CO2": 44.01, "H2O": 18.015, "O2": 31.999}
-_CP = {"N2": 1.12, "CO2": 1.21, "H2O": 2.21, "O2": 1.06}      # кДж/(кг·К) при ~650 °C
+_CP = {"N2": 1.12, "CO2": 1.21, "H2O": 2.21, "O2": 1.06}      # kJ/(kg K) at ~650 C
 KMOL_H = sum(_kmol.values())
 X_CO2, X_H2O = _kmol["CO2"] / KMOL_H, _kmol["H2O"] / KMOL_H
 _mass = {k: _kmol[k] * _MW[k] for k in _kmol}
-M_GAS = round(sum(_mass.values()) / KMOL_H, 3)  # кг/кмоль
-MDOT = KMOL_H * M_GAS / 3600    # кг/с
-T_IN = 750 + 273.15            # смесь газа от циклонов (DCS: 754 и 746 °C)
+M_GAS = round(sum(_mass.values()) / KMOL_H, 3)  # kg/kmol
+MDOT = KMOL_H * M_GAS / 3600    # kg/s
+T_IN = 750 + 273.15            # mixed gas from the cyclones (DCS: 754 and 746 C)
 T_WALL = 250 + 273.15
 CP_GAS = round(1000 * sum(_mass[k] * _CP[k] for k in _mass) / sum(_mass.values()), 1)
 MU = 3.7e-5
 PR = 0.72
-K_GAS = 0.064                   # теплопроводность газа ~650 °C, Вт/(м·К)
+K_GAS = 0.064                   # gas conductivity at ~650 C, W/(m K)
 
-# Пыль, идущая через пучки: 20 % от 50 т/ч (пользователь), частицы ~20 мкм (допущение)
+# Dust passing through the bundles: share of 50 t/h (user), particles ~20 um (assumption)
 DUST_KG_H = a.dust_frac * 50000
 D_DUST = 20e-6
 RHO_DUST = 2500.0
 CP_DUST = 850.0
-CP = CP_GAS + DUST_KG_H / 3600 / MDOT * CP_DUST     # теплоёмкость потока газ + пыль на 1 кг газа
+CP = CP_GAS + DUST_KG_H / 3600 / MDOT * CP_DUST     # heat capacity of gas + dust per kg of gas
 if a.absorb is None:
-    _c = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * 923.15)))   # кг/м³ при ~650 °C
-    a.absorb = round(0.16 + 1.5 * _c / (RHO_DUST * D_DUST), 3)        # газ ~0.16 1/м + пыль
-# Ожидаемая средняя температура газа в пучке, °C (для излучения; уточнять по расчёту)
+    _c = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * 923.15)))   # kg/m3 at ~650 C
+    a.absorb = round(0.16 + 1.5 * _c / (RHO_DUST * D_DUST), 3)        # gas ~0.16 1/m + dust
+# Expected mean gas temperature in each bundle, C (for radiation; refine from results)
 TG_RAD = {"EVAP": 740, "SH1": 700, "SH2": 670, "SH3": 640, "SH4": 610}
 
-# Температура «окружения» для пучков: пар (противоток 250 -> 440 °C, поровну по ступеням)
+# "Ambient" temperature of the bundles: steam (counterflow 250 -> 440 C, equal steps); updated by coupling
 TA = {"EVAP": 250, "SH4": 270, "SH3": 312, "SH2": 361, "SH1": 413}
 if a.ta:
     for _n, _t in zip(("SH1", "SH2", "SH3", "SH4"), a.ta.split(",")):
         TA[_n] = float(_t)
-K_ASH = 0.2           # теплопроводность отложений, Вт/(м·К) — толщина слоя = wall_R * K_ASH
+K_ASH = 0.2           # deposit conductivity, W/(m K); layer thickness = R * K_ASH
 
-# ---------------------------------------------------------------- секции по x
-# Каждая секция: (длина, число ячеек). Границы пучков = границы секций.
+# ---------------------------------------------------------------- sections along x
+# Each section: (length, number of cells). Bundle edges = section edges.
 def sections(x_from, x_to, bundles):
     secs, x = [], x_from
     for name, b0, b1 in bundles:
@@ -158,27 +158,27 @@ def grading_spec(secs):
 
 evap = [b for b in g.BUNDLES if b[0] == "EVAP"]
 shs = [b for b in g.BUNDLES if b[0] != "EVAP"]
-# Если испаритель тоньше ячейки — всё равно одна ячейка
+# An evaporator thinner than a cell still gets one cell
 sec_left = sections(g.SHAFT, g.X_APEX, evap)
 sec_right = sections(g.X_APEX, g.X_RIGHT, shs)
 
-ns = n_cells(g.SHAFT)                       # поперёк газохода
-nz_b = n_cells(g.BUNDLE_DEPTH)              # высота зоны пучков
-nz_h = n_cells(g.Z_HOP)                     # глубина бункеров
+ns = n_cells(g.SHAFT)                       # across the vertical duct
+nz_b = n_cells(g.BUNDLE_DEPTH)              # height of the bundle zone
+nz_h = n_cells(g.Z_HOP)                     # depth of the hoppers
 lx_incl = math.dist(g.BEND_INNER, g.INLET_INNER)
 n_incl = n_cells(lx_incl)
 n_shaft = n_cells(g.BEND_INNER[1] - g.Z_CEIL)
 n_out = n_cells(g.X_OUT - g.X_RIGHT)
 n_ext = n_cells(g.OUTLET_EXT, 2 * R)
 
-# ---------------------------------------------------------------- блоки (x, z)
+# ---------------------------------------------------------------- blocks (x, z)
 Zc, Zh = g.Z_CEIL, g.Z_HOP
 xo_end = g.X_OUT + g.OUTLET_EXT
 split1 = g.HOP1_BOT[0] + (g.HOP1_BOT[1] - g.HOP1_BOT[0]) * g.SHAFT / g.X_APEX
 
 
 def hopper_fill_z(frac):
-    """Высота слоя золы, занимающего долю frac объёма бункера 1 (площадь сечения ~ Lx(z)·Wy(z))."""
+    """Height of an ash layer filling the fraction frac of hopper 1 (section area ~ Lx(z)*Wy(z))."""
     def area(z):
         lx = (g.HOP1_BOT[1] - g.HOP1_BOT[0]) + (g.X_APEX - (g.HOP1_BOT[1] - g.HOP1_BOT[0])) * z / Zh
         wy = g.W_HOP_BOT + (g.W - g.W_HOP_BOT) * z / Zh
@@ -195,19 +195,19 @@ def hopper_fill_z(frac):
 
 Z_ASH = hopper_fill_z(a.hopper_fill) if a.hopper_fill > 0 else 0.0
 _f2 = a.hopper_fill if a.hopper2_fill is None else a.hopper2_fill
-Z_ASH2 = hopper_fill_z(_f2) if _f2 > 0 else 0.0     # бункеры почти одинаковые по форме
+Z_ASH2 = hopper_fill_z(_f2) if _f2 > 0 else 0.0     # both hoppers have nearly the same shape
 nz_h = n_cells(Zh - Z_ASH)
 nz_h2 = n_cells(Zh - Z_ASH2)
 
 
 def at_z(p_low, p_high, z):
-    """Точка на отрезке p_low -> p_high на высоте z."""
+    """Point on segment p_low -> p_high at height z."""
     t = (z - p_low[1]) / (p_high[1] - p_low[1])
     return (p_low[0] + t * (p_high[0] - p_low[0]), z)
 
 
 def hop(q):
-    """Бункерный блок, обрезанный снизу по уровню золы."""
+    """Hopper block cut at the bottom by the ash level."""
     p0, p1, p2, p3 = q
     return hop_z(q, Z_ASH)
 
@@ -217,7 +217,7 @@ def hop_z(q, z):
     return (at_z(p0, p3, z), at_z(p1, p2, z), p2, p3)
 
 blocks = [
-    # имя, (p0, p1, p2, p3) против часовой в (x, z); (n1, grading1), (n2, grading2)
+    # name, (p0, p1, p2, p3) anticlockwise in (x, z); (n1, grading1), (n2, grading2)
     ("incl", (g.BEND_INNER, g.BEND_OUTER, g.INLET_OUTER, g.INLET_INNER), (ns, "1"), (n_incl, "1")),
     ("shaft", ((0, Zc), (g.SHAFT, Zc), g.BEND_OUTER, g.BEND_INNER), (ns, "1"), (n_shaft, "1")),
     ("col", ((0, Zh), (g.SHAFT, Zh), (g.SHAFT, Zc), (0, Zc)), (ns, "1"), (nz_b, "1")),
@@ -254,7 +254,7 @@ DUCT_SIDES = {"incl": (1, 3), "shaft": (1, 3), "col": (3,)}
 for name, quad, (n1, g1), (n2, g2) in blocks:
     front = [vertex(x, +half_w(z), z) for x, z in quad]
     back = [vertex(x, -half_w(z), z) for x, z in quad]
-    # проверка правой тройки: (p1-p0) x (p3-p0) . (back0-front0) > 0
+    # right-handedness check: (p1-p0) x (p3-p0) . (back0-front0) > 0
     p = [verts[i] for i in front]
     q = verts[back[0]]
     e1 = [p[1][k] - p[0][k] for k in range(3)]
@@ -264,16 +264,16 @@ for name, quad, (n1, g1), (n2, g2) in blocks:
     assert sum(cr[k] * e3[k] for k in range(3)) > 0, name
     hexes.append(f"    hex ({' '.join(map(str, front + back))}) {name} ({n1} {n2} {a.ny})\n"
                  f"        simpleGrading ({g1} {g2} 1)")
-    if name == "incl":   # грань p2-p3 (вход)
+    if name == "incl":   # face p2-p3 (inlet)
         faces_inlet.append((front[3], front[2], back[2], back[3]))
-    if name == "ext":    # грань p1-p2 (выход)
+    if name == "ext":    # face p1-p2 (outlet)
         faces_outlet.append((front[1], front[2], back[2], back[1]))
-    if name in DUCT_SIDES:   # стенки газоходов: боковые грани y = ±W/2 и стенки контура
+    if name in DUCT_SIDES:   # duct walls: side faces y = +-W/2 and contour walls
         faces_duct.append(tuple(front))
         faces_duct.append((back[0], back[3], back[2], back[1]))
         for s_ in DUCT_SIDES[name]:
             faces_duct.append((front[s_], back[s_], back[(s_ + 1) % 4], front[(s_ + 1) % 4]))
-    if name.startswith("hop") and Z_ASH > 0:   # грань p0-p1 (поверхность золы)
+    if name.startswith("hop") and Z_ASH > 0:   # face p0-p1 (ash surface)
         faces_ash.append((front[0], back[0], back[1], front[1]))
 
 vtxt = "\n".join(f"    ({x:.15g} {y:.15g} {z:.15g})" for x, y, z in verts)
@@ -333,7 +333,7 @@ defaultPatch
 }}
 """)
 
-# ---------------------------------------------------------------- зоны пучков
+# ---------------------------------------------------------------- bundle zones
 eps = 1e-3
 actions = []
 for name, x0, x1 in g.BUNDLES:
@@ -344,12 +344,12 @@ for name, x0, x1 in g.BUNDLES:
         source  boxToCell;
         box     ({x0 + eps:.6f} -100 {Zh:.6f}) ({x1 - eps:.6f} 100 {Zc:.6f});
     }}""")
-# юбки: столбец ячеек на всю ширину от низа пучков вниз
+# skirts: a column of cells across the full width from the bundle bottoms downwards
 _bx = {n: (x0, x1) for n, x0, x1 in g.BUNDLES}
 SKIRT_X = {"evap": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "sh1": (_bx["SH1"][1] + _bx["SH2"][0]) / 2,
            "sh2": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "sh3": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
            "sh4": (_bx["SH4"][1] + g.X_RIGHT) / 2,
-           # сразу за SH4: вертикально вниз до наклонной стенки бункера — закрывает выход газа из-под пучков
+           # right behind SH4: vertically down to the sloped hopper wall - closes the gas exit from under the bundles
            "sh4end": _bx["SH4"][1] + 0.5 * R}
 SKIRTS = []
 for item in filter(None, a.skirts.split(",")):
@@ -365,13 +365,13 @@ for i, (where, xs, depth) in enumerate(SKIRTS):
     }}""")
 write("system/topoSetDict", "actions\n(\n" + "\n".join(actions) + "\n);\n")
 
-# ---------------------------------------------------------------- пористость и теплообмен
-sigma = 1 - g.D_TUBE / g.S_TRANS                 # живое сечение поперёк хода газа
-# Калибровка (docs/CALIBRATION.md): Эйлер на ряд по Гаддису–Гнилинскому (VDI) для шагов пучка;
-# сценарий B — множители по нестационарному CFD куска пучка (Δp x0.72, α x0.71).
+# ---------------------------------------------------------------- porosity and heat transfer
+sigma = 1 - g.D_TUBE / g.S_TRANS                 # free area across the gas flow
+# Resistance (docs/CALIBRATION.md): Euler number per row by Gaddis-Gnielinski (VDI) for the bundle pitches;
+# scenario B: factors from the transient tube-bank CFD (dp x0.72, htc x0.71) - discarded, kept for reference.
 EU_CORR = {"EVAP": 0.18, "SH": 0.159}
 DP_FAC, H_FAC = {"A": (1.0, 1.0), "B": (0.72, 0.71)}[a.scenario]
-# α со стороны пара на наружную поверхность: ~600 при 13.9 кг/с (оценка: 138 труб ~30 мм), ~ расход^0.8
+# steam-side htc on the outer surface: ~600 at 13.9 kg/s (estimate: 138 tubes ~30 mm i.d.), ~ flow^0.8
 H_STEAM = 600.0 * (a.steam_kg_s / 13.9) ** 0.8
 
 
@@ -387,7 +387,7 @@ def htc_table():
 
 
 def eps_gas(T, pL):
-    """Степень черноты смеси CO2+H2O (WSGG, Smith, Shen, Friedman 1982, pw/pc = 1), pL в атм·м."""
+    """Emissivity of a CO2+H2O mixture (WSGG, Smith, Shen, Friedman 1982, pw/pc = 1), pL in atm*m."""
     K = [0.4303, 7.055, 178.1]
     B = [[5.150, -2.303, 0.9779, -1.494], [0.7749, 3.399, -2.297, 0.3770], [1.907, -1.824, 0.5608, -0.5122]]
     F = [1e-1, 1e-4, 1e-7, 1e-11]
@@ -396,14 +396,14 @@ def eps_gas(T, pL):
 
 
 def h_rad(name):
-    """Эквивалентный коэффициент излучения газа и пыли на трубы пучка, Вт/(м²·К)."""
+    """Equivalent radiation htc of gas and dust to the bundle tubes, W/(m2 K)."""
     nt = g.TUBES[name]
     L = [x1 - x0 for n, x0, x1 in g.BUNDLES if n == name][0]
     s2 = L / nt
-    Lb = 1.08 * (g.S_TRANS * s2 - math.pi * g.D_TUBE ** 2 / 4) / g.D_TUBE   # эффективная толщина слоя
+    Lb = 1.08 * (g.S_TRANS * s2 - math.pi * g.D_TUBE ** 2 / 4) / g.D_TUBE   # mean beam length in the bundle
     Tg, Tw = TG_RAD[name] + 273.15, TA[name] + 273.15 + (0 if name == "EVAP" else 30)
     eg = eps_gas(Tg, (X_CO2 + X_H2O) * P_ABS / 101325 * Lb)
-    c_dust = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * Tg)))     # кг/м³ при Tg
+    c_dust = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * Tg)))     # kg/m3 at Tg
     ed = 1 - math.exp(-1.5 * c_dust * Lb / (RHO_DUST * D_DUST))
     e = 1 - (1 - eg) * (1 - ed)
     eps_w = 0.8
@@ -414,10 +414,10 @@ TAB = {}
 
 
 def tab_for(name):
-    """Таблица htc(U): конвекция (калибровка) + излучение газа и пыли; для пароперегревателей
-    последовательно — сопротивление пара."""
+    """htc(U) table: convection (correlation) + gas and dust radiation, through the tube deposit;
+    for the superheaters the steam-side resistance in series."""
     hr = h_rad(name)[0]
-    rows = [(u, 1 / (1 / (h + hr) + a.bundle_R)) for u, h in htc_table()]   # налёт на трубах
+    rows = [(u, 1 / (1 / (h + hr) + a.bundle_R)) for u, h in htc_table()]   # tube deposits
     if name != "EVAP":
         rows = [(u, 1 / (1 / h + 1 / H_STEAM)) for u, h in rows]
     TAB[name] = rows
@@ -480,8 +480,8 @@ for name, x0, x1 in g.BUNDLES:
 }}
 """)
 if a.absorb > 0:
-    # Излучение в объёме (P1): газ CO2+H2O на толщине ~3 м eps ~0.38 -> a ~0.16 1/м;
-    # пыль 10 т/ч, 20 мкм -> a ~0.44 1/м. Стенки — мембрана, eps 0.8.
+    # Volume radiation (P1): CO2+H2O over ~3 m eps ~0.38 -> a ~0.16 1/m;
+    # plus dust (20 um) from the dust load. Walls: membrane with deposits, eps 0.8.
     models.append("""radiation
 {
     type    radiation;
@@ -506,7 +506,7 @@ scatterModel    none;
 sootModel       none;
 """)
 if SKIRTS:
-    # юбка = практически непроницаемый слой ячеек (очень большое сопротивление во всех направлениях)
+    # skirt = practically impermeable layer of cells (very high resistance in all directions)
     models.append("""SKIRTS_blockage
 {
     type            porosityForce;
@@ -527,7 +527,7 @@ if SKIRTS:
 """)
 write("constant/fvModels", "\n".join(models))
 
-# ---------------------------------------------------------------- свойства
+# ---------------------------------------------------------------- properties
 write("constant/physicalProperties", f"""thermoType
 {{
     type            heRhoThermo;
@@ -571,8 +571,8 @@ write("constant/g", "dimensions      [0 1 -2 0 0 0 0];\nvalue           (0 0 -9.
 write("constant/pRef", f"dimensions      [1 -1 -2 0 0 0 0];\nvalue           {P_ABS};\n",
       cls="uniformDimensionedScalarField")
 
-# ---------------------------------------------------------------- начальные и граничные условия
-ASH_BC = {  # поверхность горячей золы в бункерах: без теплообмена (и без излучения)
+# ---------------------------------------------------------------- initial and boundary conditions
+ASH_BC = {  # surface of hot ash in the hoppers: no heat exchange (and no radiation)
     "U": "type noSlip;", "p": "type calculated;\nvalue $internalField;",
     "p_rgh": "type fixedFluxPressure;\nvalue $internalField;", "T": "type zeroGradient;",
     "k": "type kqRWallFunction;\nvalue $internalField;", "epsilon": "type epsilonWallFunction;\nvalue $internalField;",
@@ -613,7 +613,7 @@ boundaryField
 
 
 I = lambda s: "\n".join("        " + l for l in s.strip().splitlines())
-U0 = MDOT / (P_ABS * M_GAS / (8314 * T_IN)) / (g.SHAFT * g.W)   # ~ скорость в газоходе
+U0 = MDOT / (P_ABS * M_GAS / (8314 * T_IN)) / (g.SHAFT * g.W)   # ~ velocity in the vertical duct
 field("U", "volVectorField", "[0 1 -1 0 0 0 0]", "uniform (0 0 0)",
       I(f"type flowRateInletVelocity;\nmassFlowRate {MDOT:.4g};\nvalue uniform (0 0 0);"),
       I("type pressureInletOutletVelocity;\nvalue uniform (0 0 0);"),
@@ -676,8 +676,8 @@ zones_vol = "\n".join(f"""    {n}_T
         fields          (T U);
     }}""" for n, _, _ in g.BUNDLES)
 
-# зонды-«термопары»: посередине промежутков перед каждым пучком SH и на выходе котла;
-# по 3 высоты (1 м под потолком, середина пучков, 0.5 м над низом пучков), середина ширины
+# thermocouple-like probes: mid-gap before each SH bundle and at the boiler outlet;
+# 3 heights (1 m below the ceiling, mid-bundle, 0.5 m above the bundle bottoms), mid-width
 _gaps = {"before_SH1": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "before_SH2": (_bx["SH1"][1] + _bx["SH2"][0]) / 2,
          "before_SH3": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "before_SH4": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
          "after_SH4": (_bx["SH4"][1] + g.X_RIGHT) / 2}
@@ -686,8 +686,8 @@ for _n, _x in _gaps.items():
     for _lab, _z in (("top", Zc - 1.0), ("mid", Zh + g.BUNDLE_DEPTH / 2), ("low", Zh + 0.5)):
         PROBE_LIST.append((f"{_n}_{_lab}", (_x, 0.0, _z)))
 PROBE_LIST.append(("outlet_mid", (g.X_OUT + 2.0, 0.0, (g.Z_OUT_BOT + g.Z_OUT_TOP) / 2)))
-# термопара «vertical path» (~725 °C): вертикальный газоход, посередине стенки длиной 3.7 м,
-# неглубокий ввод (~0.15 м от стенки); высота неизвестна — три высоты, у стенки и в центре
+# "vertical path" thermocouple (~725 C): vertical duct, mid-width of the 3.7 m wall,
+# short insertion (~0.15 m from the wall); height unknown - three heights, near wall and centre
 for _z in (22.0, 26.0, 30.0):
     PROBE_LIST.append((f"shaftwall_{_z:.0f}", (g.SHAFT / 2, g.W / 2 - 0.15, _z)))
     PROBE_LIST.append((f"shaftmid_{_z:.0f}", (g.SHAFT / 2, 0.0, _z)))
@@ -952,12 +952,12 @@ runApplication reconstructPar -latestTime
     + "".join(f"htc_{n} " + " ".join(f"{u:g}:{h:.5g}" for u, h in TAB[n]) + "\n" for n, _, _ in g.BUNDLES),
     encoding="utf-8")
 
-# сводка
-print(f"m = {MDOT:.1f} кг/с, U в газоходе ~ {U0:.1f} м/с")
-print("пучок   L, м   f_x, 1/м  f_y, 1/м  Av, 1/м  Ta, °C")
+# summary
+print(f"m = {MDOT:.1f} kg/s, U in vertical duct ~ {U0:.1f} m/s")
+print("bundle  L, m   f_x, 1/m  f_y, 1/m  Av, 1/m  Ta, C")
 for n, L, fx, fy, Av, Ta in info:
     print(f"{n:5s} {L:6.3f} {fx:9.2f} {fy:9.2f} {Av:8.2f} {Ta:6.0f}")
 for n, _, _ in g.BUNDLES:
     hr, eg, ed = h_rad(n)
-    print(f"{n}: излучение h = {hr:.1f} Вт/(м²·К) (газ eps = {eg:.3f}, пыль eps = {ed:.3f})")
+    print(f"{n}: radiation h = {hr:.1f} W/(m2 K) (gas eps = {eg:.3f}, dust eps = {ed:.3f})")
 print("htc(U):", ", ".join(f"{u:g}:{h:.0f}" for u, h in htc_table()))

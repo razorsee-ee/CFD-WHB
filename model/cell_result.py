@@ -1,8 +1,8 @@
-"""Итог проверочного расчёта куска пучка: перепад давления и снятое тепло.
+"""Result of the tube-bank check: pressure drop and heat removed.
 
-python model/cell_result.py [--from T] <кейс> [<кейс> ...]
-Стационарный кейс — последние значения; нестационарный — среднее по времени от T
-(по умолчанию — вторая половина расчёта). Параметры кейса — из case_info.txt.
+python model/cell_result.py [--from T] <case> [<case> ...]
+Steady case - last values; transient - time average from T
+(default: second half of the run). Case parameters from case_info.txt.
 """
 import math
 import sys
@@ -32,8 +32,8 @@ def info(case):
     return d
 
 
-print(f"{'кейс':26s} {'время/итер':>10s} {'dp, Па':>7s} {'dp min..max':>13s} {'Tвых, °C':>8s} "
-      f"{'Q, кВт/м²':>9s} {'α, Вт/м²К':>9s}")
+print(f"{'case':26s} {'time/iter':>10s} {'dp, Pa':>7s} {'dp min..max':>13s} {'Tout, C':>8s} "
+      f"{'Q, kW/m2':>9s} {'htc, W/m2K':>9s}")
 for c in args:
     I = info(c)
     pp = Path(c) / "postProcessing"
@@ -41,7 +41,7 @@ for c in args:
     fl = table(next(pp.glob("flow/*/surfaceFieldValue.dat")))
     to = table(next(pp.glob("Tout/*/surfaceFieldValue.dat")))
     t_end = io[-1][0]
-    transient = t_end < 10           # нестационарные кейсы считаются в секундах
+    transient = t_end < 10           # transient cases run in seconds
     t0 = (t_from if t_from is not None else t_end / 2) if transient else t_end
     sel = lambda tab: [r[1] for r in tab if r[0] >= t0 - 1e-12]
     p, m, T = sel(io), sel(fl), sel(to)
@@ -53,6 +53,6 @@ for c in args:
     A = I["ncol"] * I["ntubes"] * math.pi * 0.038 * I["DZ"]
     d1, d2 = I["T_IN"] - I["T_TUBE"], Tout - I["T_TUBE"]
     alpha = Q / (A * (d1 - d2) / math.log(d1 / d2))
-    tlab = f"{t0:.2f}-{t_end:.2f}с" if transient else f"{int(t_end)}"
+    tlab = f"{t0:.2f}-{t_end:.2f}s" if transient else f"{int(t_end)}"
     print(f"{Path(c).name:26s} {tlab:>10s} {dp:7.1f} {min(p) - I['P_ABS']:6.0f}..{max(p) - I['P_ABS']:<6.0f} "
           f"{Tout - 273.15:8.1f} {Q / (width * I['DZ']) / 1e3:9.1f} {alpha:9.1f}")
