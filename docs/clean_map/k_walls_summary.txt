@@ -1,0 +1,43 @@
+Skirts: -; right hopper ash fill 10 %
+Iteration 1500: deposits R [m2K/W]: ducts 0.04, boiler walls 0.05, tubes 0.05; dust to bundles 40 %; absorption 0.923 1/m; sponge A
+Gas at the bottom of the vertical duct (area mean): 713 °C
+Gas before the evaporator (area mean of whole section): 682 °C
+Gas at outlet (mass-flux weighted): 586 °C   (DCS 618 °C)
+Heat given by gas: 19.6 MW   Pressure drop inlet-outlet: 109 Pa
+
+Bundle     gas T, °C  Ux, m/s  gas through bundle  heat, MW  max |U|, m/s
+EVAP  EVAP        674     5.79             81 %          1.07        15.0
+SH1   SH IIIb     665     6.19             87 %          1.90        11.5
+SH2   SH IIIa     640     4.41             64 %          1.95         6.3
+SH3   SH II       609     3.69             55 %          2.02         4.6
+SH4   SH I        587     4.35             67 %          2.21         9.8
+
+Superheaters: 8.07 MW   (steam 15.9 kg/s + spray 0.25 kg/s)
+Evaporator: 1.07 MW   Walls (remainder): 10.5 MW
+Steam (model, 40 bar steam tables): SH I: 250->293, SH II: 293->340, SH IIIa: 340->389, SH IIIb: 376->425 °C  -> outlet 425 °C
+Steam (DCS, 16.2 kg/s):             SH I: 251->291, SH II: 290->343, SH IIIa: 341->395, SH IIIb: 394->441 °C
+Stage heat SH I / II / IIIa / IIIb, MW: model 2.21 / 2.02 / 1.95 / 1.90 = 8.1;  DCS 2.19 / 2.30 / 2.15 / 1.76 = 8.4
+Steam temperature used in this pass (stage mean): SH I 271, SH II 316, SH IIIa 365, SH IIIb 405 °C
+
+Bulk gas temperature (enthalpy flux) between bundles, °C:   whole | above bundle bottom | below (over hopper) | share of flow below
+  before SH IIIb    682 |   681 |   635 |    -3 %   (DCS thermocouple 702)
+  before SH IIIa    659 |   659 |   659 |    15 %   (DCS thermocouple 681)
+  before SH II      635 |   631 |   640 |    41 %   (DCS thermocouple 655)
+  before SH I       615 |   603 |   633 |    43 %   (DCS thermocouple 621)
+  after SH I        595 |   589 |   628 |    15 %
+  outlet duct       589 |   589 |     - |     0 %   (DCS thermocouple 618)
+
+Point probes between bundles, mid-width, °C:
+before          top     mid     low    DCS
+SH IIIb          675     686     678    702
+SH IIIa          655     666     665    681
+SH II            632     638     635    655
+SH I             604     607     616    621
+after SH I       575     582     625       
+outlet duct, centre: 593 °C (DCS 618)
+Vertical duct (DCS 'vertical path' ~725 °C, thermocouple near the wall at mid-width):
+  z = 22 m: near wall 712 °C, centre 726 °C
+  z = 26 m: near wall 718 °C, centre 732 °C
+  z = 30 m: near wall 723 °C, centre 736 °C
+
+Share < 100 %: the rest of the gas bypasses the bundle (underneath, over the hopper).
