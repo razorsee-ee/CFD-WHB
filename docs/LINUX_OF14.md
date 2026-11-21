@@ -89,3 +89,36 @@ claude.ai: в папке проекта `claude remote-control`, сеанс по
 
 Правила, когда Claude работает на машине пользователя: длинные расчёты в `tmux`; ничего вне папки
 проекта без спроса; `sudo` — только с явного согласия.
+
+### Claude Desktop для Linux (бета)
+
+С лета 2026 есть официальная бета (https://code.claude.com/docs/en/desktop-linux): Ubuntu 22.04+ / Debian 12+, x86_64.
+Работают чат, вкладка **Code** (сессии Claude Code прямо на этом ПК, терминал, просмотр правок) и Cowork.
+Нет: computer use (управление экраном), диктовка. Ставится из apt-репозитория Anthropic:
+
+```bash
+sudo apt install curl gnupg
+```
+
+```bash
+sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc
+```
+
+```bash
+gpg --show-keys /usr/share/keyrings/claude-desktop-archive-keyring.asc
+```
+
+Отпечаток должен быть ровно `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`.
+
+```bash
+echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/claude-desktop.list
+```
+
+```bash
+sudo apt update && sudo apt install claude-desktop
+```
+
+Запуск: «Claude» в меню приложений или `claude-desktop`; не от root. Обновления — обычным `apt upgrade`.
+Cowork дополнительно требует KVM/QEMU (`sudo usermod -aG kvm $USER` и др., см. страницу) — нам не обязателен.
+Remote Control (`/remote-control` в сессии вкладки Code или настройка в Settings → Code): сессия идёт на ПК,
+а смотреть и писать в неё можно с телефона или из claude.ai. ПК при этом должен быть включён.
