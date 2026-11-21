@@ -8,6 +8,20 @@
 Все команды Windows — в **PowerShell от администратора** (Пуск → PowerShell → правой кнопкой → Run as administrator),
 в одном окне, по одной.
 
+## Данные ПК (проверка 21.11.2026)
+
+| | |
+|---|---|
+| Диск 0 | Samsung 970 EVO Plus 500 ГБ (NVMe, GPT): EFI 100 МБ (FAT32, свободно 63 МБ), C: 464 ГБ, свободно 204 ГБ |
+| Диск 1 | Seagate 1 ТБ HDD (GPT): E: «HDD for files», свободно 573 ГБ |
+| BitLocker | C: не зашифрован → вариант «рядом с Windows» должен быть доступен |
+| Secure Boot | выключен (UEFI) → Ubuntu и драйвер NVIDIA без лишних шагов |
+| Плата | ASUS ROG STRIX B360-F GAMING → Boot Menu **F8**, BIOS **Del** |
+| Видео | NVIDIA RTX 2080 SUPER → в установщике галочка third-party drivers |
+
+План: Ubuntu на NVMe (C: сжать на 130 ГБ = 10 ГБ под L: + 120 ГБ под Ubuntu, на C: остаётся ~74 ГБ свободно);
+большие результаты расчётов при нужде — на HDD (раздел E: виден из Ubuntu, раз быстрый запуск выключен).
+
 ## Шаг 0. Проверки (прислать вывод Claude до любых изменений)
 
 ```bash
