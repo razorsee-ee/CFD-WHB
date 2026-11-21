@@ -6,3 +6,4 @@ log.*
 *.foam
 .plot.pid
 .last_case.txt
+results/
