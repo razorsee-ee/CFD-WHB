@@ -13,7 +13,8 @@
 - **Ubuntu у пользователя** (Claude Code / Claude Desktop на его ПК): i7-9700, 8 ядер, 16 ГБ → `numberOfSubdomains 8`.
   OpenFOAM-14 пакетом: `source /opt/openfoam14/etc/bashrc`. Команды запускаешь сам; длинные расчёты — в `tmux`,
   не блокируя сессию. `sudo`, установка пакетов и всё вне папки проекта — только с согласия пользователя.
-- **Облачный контейнер Claude**: OpenFOAM ставить по `docs/LINUX_OF14.md` (раздел «Контейнер Claude»), 4 ядра.
+- **Облачный контейнер Claude** (окружение «CFD-WHB»): OpenFOAM-14 ставится setup script'ом → `source /opt/of14env.sh`.
+  Если файла нет — `bash tools/setup_openfoam14.sh` (готовый пакет, ~30 с; из исходников не собирать). 4 ядра.
 - **Windows/blueCFD (OpenFOAM-12)** — только старые кейсы; это делает сам пользователь в MSYS2, ему нужны готовые команды.
 
 ## Версии
