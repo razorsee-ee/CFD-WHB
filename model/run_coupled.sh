@@ -4,6 +4,9 @@
 #
 #   bash model/run_coupled.sh <dir> <cores> <cell_m> <passes> [make_case.py arguments ...]
 #
+# GEN=make_case_of14.py selects the OpenFOAM-14 generator (default: make_case.py, OpenFOAM-12).
+# TA=SH1,SH2,SH3,SH4 sets the steam temperatures of the first pass.
+#
 # Result: <dir>_1 ... <dir>_N, each with summary.txt; the final answer is summary.txt of the last pass.
 
 BASE=$1; NP=$2; RES=$3; NOUT=$4; shift 4
@@ -14,18 +17,19 @@ export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 NY=$("$PY" -c "print(max(6, round(4.65 / (2 * $RES))))")
 
-TA=""
+TA="${TA:-}"
+GEN="${GEN:-make_case.py}"
 PREV=""
 for k in $(seq 1 "$NOUT"); do
     DIR="${BASE}_$k"
     ITERS=$([ "$k" = 1 ] && echo "${ITERS1:-3000}" || echo "${ITERSN:-1500}")
     echo "$(date +%H:%M) pass $k/$NOUT: $DIR ${TA:+(steam: $TA)}"
-    "$PY" "$REPO/model/make_case.py" "$DIR" --res "$RES" --ny "$NY" --np "$NP" --iters "$ITERS" \
+    "$PY" "$REPO/model/$GEN" "$DIR" --res "$RES" --ny "$NY" --np "$NP" --iters "$ITERS" \
         ${TA:+--ta $TA} $EXTRA > "$DIR.make.txt" 2>&1 || { cat "$DIR.make.txt"; exit 1; }
     (
         cd "$DIR" || exit 1
         runApplication blockMesh
-        runApplication topoSet
+        if [ -f system/createZonesDict ]; then runApplication createZones; else runApplication topoSet; fi
         [ -n "$PREV" ] && runApplication mapFields "$PREV" -consistent -sourceTime latestTime
         runApplication decomposePar
         runParallel foamRun
