@@ -39,6 +39,11 @@ ap.add_argument("--hopper2_fill", type=float, default=None, help="ash fill of th
 ap.add_argument("--skirts", default="",
                 help="vertical skirts from the bundle bottoms downwards, 'place:depth_m,...'; places: evap (after the evaporator), "
                      "sh1, sh2, sh3 (after that bundle), sh4 (between SH4 and the wall), sh4end (right behind SH4, down to the hopper wall)")
+ap.add_argument("--skirt_thick", type=float, default=0.0,
+                help="skirt thickness, m (0 = one coarse cell, as before); with it the sh4end skirt starts right at the SH4 end")
+ap.add_argument("--refine", default="", help="local refinement box in the side section 'x0,z0,x1,z1' (m), full width; "
+                "cells are split in x and z (refineMesh) --refine_levels times")
+ap.add_argument("--refine_levels", type=int, default=2, help="number of 2x refinement levels inside --refine")
 ap.add_argument("--extra_water_t_h", type=float, default=14.0, help="unmetered water into the furnace, t/h (added to gas H2O)")
 ap.add_argument("--extra_air_nm3_h", type=float, default=10000.0, help="unmetered air (burners), Nm3/h")
 ap.add_argument("--extra_n2_nm3_h", type=float, default=2000.0, help="nitrogen from seals, Nm3/h")
@@ -361,13 +366,14 @@ SKIRT_X = {"evap": (_bx["EVAP"][1] + _bx["SH1"][0]) / 2, "sh1": (_bx["SH1"][1] +
            "sh2": (_bx["SH2"][1] + _bx["SH3"][0]) / 2, "sh3": (_bx["SH3"][1] + _bx["SH4"][0]) / 2,
            "sh4": (_bx["SH4"][1] + g.X_RIGHT) / 2,
            # right behind SH4: vertically down to the sloped hopper wall - closes the gas exit from under the bundles
-           "sh4end": _bx["SH4"][1] + 0.5 * R}
+           "sh4end": _bx["SH4"][1] + (0.5 * a.skirt_thick if a.skirt_thick else 0.5 * R)}
 SKIRTS = []
 for item in filter(None, a.skirts.split(",")):
     where, depth = item.split(":")
     SKIRTS.append((where, SKIRT_X[where], float(depth)))
 if SKIRTS:
-    _boxes = " ".join(f"({xs - 0.55 * R:.6f} -100 {Zh - depth:.6f}) ({xs + 0.55 * R:.6f} 100 {Zh:.6f})"
+    _hw = 0.5 * a.skirt_thick if a.skirt_thick else 0.55 * R
+    _boxes = " ".join(f"({xs - _hw:.6f} -100 {Zh - depth:.6f}) ({xs + _hw:.6f} 100 {Zh:.6f})"
                       for _, xs, depth in SKIRTS)
     zones.append(f"""SKIRTS
 {{
@@ -377,6 +383,34 @@ if SKIRTS:
 }}
 """)
 write("system/createZonesDict", "\n".join(zones))
+
+if a.refine:
+    # local refinement (e.g. around the gas passage behind SH I); each next level shrinks by one coarse cell
+    rx0, rz0, rx1, rz1 = map(float, a.refine.split(","))
+    lv = []
+    for k in range(a.refine_levels):
+        d = k * R
+        lv.append(f"""    level{k + 1}
+    {{
+        type    box;
+        box     ({rx0 + d:.4f} -100 {rz0 + d:.4f}) ({rx1 - d:.4f} 100 {rz1 - d:.4f});
+    }}""")
+    write("system/refineMeshDict", f"""coordinates
+{{
+    type        global;
+    e1          (1 0 0);
+    e2          (0 0 1);
+    directions  (e1 e2);
+}}
+
+geometricCut    false;
+writeMesh       false;
+
+zones
+{{
+{chr(10).join(lv)}
+}}
+""")
 
 # ---------------------------------------------------------------- porosity and heat transfer
 sigma = 1 - g.D_TUBE / g.S_TRANS                 # free area across the gas flow
@@ -976,6 +1010,7 @@ cd ${0%/*} || exit 1
 . $WM_PROJECT_DIR/bin/tools/RunFunctions
 
 runApplication blockMesh
+[ -f system/refineMeshDict ] && runApplication refineMesh
 runApplication checkMesh
 runApplication createZones
 runApplication decomposePar
@@ -988,7 +1023,7 @@ runApplication reconstructPar -latestTime
     f"MDOT {MDOT}\nCP {CP}\nT_IN {T_IN}\nP_ABS {P_ABS}\nM_GAS {M_GAS}\nwall_R {a.wall_R}\n"
     f"bundle_fac {a.bundle_fac}\nbundle_R {a.bundle_R}\ndust_frac {a.dust_frac}\n"
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
-    f"RES {a.res}\nNY {a.ny}\nZ_ASH {Z_ASH}\n"
+    f"RES {a.res}\nNY {a.ny}\nrefine {a.refine or '-'}:{a.refine_levels}\nZ_ASH {Z_ASH}\n"
     f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
     f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\nextra_water_t_h {a.extra_water_t_h}\n"
     f"extra_air_nm3_h {a.extra_air_nm3_h}\nextra_n2_nm3_h {a.extra_n2_nm3_h}\nX_O2 {_kmol['O2'] / KMOL_H}\nX_H2O {X_H2O}\n"

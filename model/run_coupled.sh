@@ -29,6 +29,7 @@ for k in $(seq 1 "$NOUT"); do
     (
         cd "$DIR" || exit 1
         runApplication blockMesh
+        [ -f system/refineMeshDict ] && runApplication refineMesh
         if [ -f system/createZonesDict ]; then runApplication createZones; else runApplication topoSet; fi
         [ -n "$PREV" ] && runApplication mapFields "$PREV" -consistent -sourceTime latestTime
         runApplication decomposePar
