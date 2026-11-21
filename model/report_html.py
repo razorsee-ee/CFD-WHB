@@ -50,6 +50,7 @@ def fmt(v, nd=0):
 
 def main():
     out = Path(sys.argv[1])
+    out.parent.mkdir(parents=True, exist_ok=True)
     runs = []
     for arg in sys.argv[2:]:
         label, d = arg.split("=", 1)
