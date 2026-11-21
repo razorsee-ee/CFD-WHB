@@ -144,7 +144,7 @@ if t is not None and (t / "Vc").exists():
             acc = {"all": [0.0, 0.0, 0.0], "above": [0.0, 0.0, 0.0], "below": [0.0, 0.0, 0.0]}
             dx = RES
             for i, c in enumerate(C):
-                if abs(c[0] - xp) >= 0.5 * dx:
+                if abs(c[0] - xp) >= 0.55 * dx:      # plane may fall on a face: take both neighbouring layers
                     continue
                 dA = V[i] / dx                                      # cell volume / cell length along x
                 rho = P_ABS * M_GAS / (8314 * T[i])
