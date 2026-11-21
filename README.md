@@ -2,6 +2,7 @@
 
 CFD-расчёты котла (OpenFOAM-12 Foundation; у пользователя — blueCFD-Core 2024 на Windows).
 
+- `docs/INSTALL_UBUNTU26_PC.md` — Ubuntu 26.04 рядом с Windows на домашнем ПК без флешки (по опыту ноутбука).
 - `docs/LINUX_OF14.md` — **решение 21.11.2026**: новая система Ubuntu 26.04 + OpenFOAM-14, старые проекты остаются на blueCFD (OF-12); установка и отличия синтаксиса 12 → 14.
 - `docs/NEW_PROJECT_OPENFOAM.md` — с чего начинать: пользователь и его система, установка OpenFOAM в облаке, стартовые точки для CFB, известные грабли OpenFOAM-12 и Windows.
 - `tools/setup_openfoam12.sh` — установка OpenFOAM-12 в облачном контейнере Claude:
