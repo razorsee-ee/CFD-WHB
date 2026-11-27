@@ -1,2 +1,3 @@
 variant      label                                          T_out   steam    Q_SH   Q_gas     dp  through EVAP/IIIb/IIIa/II/I %
 v5_part_gap  5 Partitions to hopper floor, 0.5 m gap        614.8   447.5    8.90   16.12    177  91/91/81/80/89
+v6_part_full 6 Partitions to hopper floor, sealed           614.9   447.9    8.92   16.12    180  91/91/82/82/90
