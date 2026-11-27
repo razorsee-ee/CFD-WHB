@@ -43,6 +43,8 @@ def read(path):
 def skirt_boxes(case):
     f = case / "system" / "createZonesDict"
     if not f.exists():
+        f = case / "createZonesDict"          # copied flat next to summary.json (results kept in git)
+    if not f.exists():
         return []
     m = re.search(r"SKIRTS\s*\{(.*?)\}", f.read_text(), re.S)
     if not m:
