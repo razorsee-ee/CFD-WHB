@@ -81,3 +81,53 @@ cd $FOAM_RUN/cal_3 && paraFoam -builtin
 Properties → Case Type: **Reconstructed Case** (если делали `reconstructPar`) или Decomposed Case → Apply →
 Last Frame → Filters → Slice (Y Normal, Origin 0 0 0, снять Show Plane) → раскраска T (K; 723–1033 = 450–760 °C),
 U (0–15), p_rgh (давление без гидростатики) → вид −Y → Reset Camera.
+
+## 6. Полная спецификация модели этого расчёта (из сгенерированного кейса)
+
+Генерация: `make_case.py --res 0.1 --ny 23 --np 8 --duct_R 0.08 --wall_R 0.10 --bundle_R 0.05 --lts --lts_co 5`
+(OpenFOAM-12, `foamRun`, модуль `fluid`).
+
+### Сетка
+| | |
+|---|---|
+| Ячеек | **1 085 577**, все шестигранники (blockMesh), 1 область, 15 cellZones (5 пучков + блоки) |
+| Узлов / граней | 1 151 616 / 3 321 962 |
+| Размер ячейки | в продольном сечении ~0.1 м (в пучках подогнан к их границам: испаритель 3 ячейки, SH по 8); по ширине 23 ячейки ≈ 0.2 м; бункеры сужаются к дну; в сужении/выходном газоходе ячейки сплюснуты по высоте (~0.046 м) |
+| Объём газа | 1738 м³ |
+| Качество | неортогональность max 40.4° (средн. 8.8°), skewness max 0.92, aspect max 5.7, checkMesh OK |
+| Граничные патчи | `inlet` 851 граней, `outlet` 1541, `ductWalls` 34 219, `walls` 89 159, `ash` 4 692 |
+| Ячеек в пучках | EVAP 4 623, SH IIIb / IIIa / II / I по 12 328 |
+| y+ у стенок (оценка) | первая ячейка ~0.05 м по нормали в сечении, ~0.1 м по ширине → y+ ~300–600 в газоходах (верх диапазона пристенных функций) |
+
+### Физика
+| | |
+|---|---|
+| Газ | идеальный газ, M = 28.0, cp = 1338 Дж/(кг·К) (газ 1247 + пыль), μ = 3.7e-5 Па·с, Pr = 0.72; энергия — sensibleEnthalpy |
+| Гравитация | (0 0 −9.81), формулировка p_rgh, pRef = 111 800 Па |
+| Турбулентность | **k–ε стандартная** (RAS, коэффициенты по умолчанию: Cμ 0.09, C1 1.44, C2 1.92, σk 1, σε 1.3), стенки — `kqRWallFunction`, `epsilonWallFunction`, `nutkWallFunction`, `compressible::alphatWallFunction` (Prt 0.85) |
+| Излучение | P1, серое, поглощение = излучение = 0.923 1/м, обновление каждую итерацию; `MarshakRadiation` на стенках (ε 0.8), на входе/выходе ε 1, на золе — zeroGradient |
+| Пучки | `porosityForce` DarcyForchheimer d = 0, f = (7.09 / 16.67 / 0.5) испаритель, (6.36 / 17.39 / 0.5) SH [1/м, оси x/y/z]; `heatTransfer` (semiImplicit) с таблицей htc(|U|) и Av 17.8 / 18.1 1/м, Ta = температура пара (увязывается) |
+| Стенки | `externalTemperature`: Ta 250 °C, h 800, слой k 0.2 Вт/(м·К) толщиной 16 мм (газоходы, R 0.08) / 20 мм (котёл, R 0.10), с излучением (`qr`) |
+
+### Граничные условия
+| | U | T | p_rgh | k / ε |
+|---|---|---|---|---|
+| inlet | flowRateInletVelocity 89.16 кг/с | 1023.15 K (750 °C) | fixedFluxPressure | интенсивность 5 % / масштаб 0.3 м |
+| outlet | inletOutlet (без обратного тока) | inletOutlet 550 °C | prghPressure p = 0 (→ 1.118 бар абс.) | inletOutlet |
+| walls, ductWalls | noSlip | externalTemperature (слой золы) | fixedFluxPressure | пристенные функции |
+| ash | noSlip | zeroGradient | fixedFluxPressure | пристенные функции |
+Начальные поля: U = 0, T = 650 °C, k = 0.74, ε = 0.35.
+
+### Численные схемы и решатели
+| | |
+|---|---|
+| Время | **LTS** (`localEuler`), PIMPLE: 1 внешняя итерация, 2 коррекции давления, 1 неортогональная; maxCo 5, rDeltaTSmoothingCoeff 0.1 |
+| Конвекция | U — bounded linearUpwind (limited grad); h, k, ε, K — bounded upwind |
+| Градиенты | Gauss linear, для U, h, k, ε — cellLimited 1 |
+| Лапласианы | Gauss linear limited corrected 0.5 |
+| Релаксация | p_rgh 0.3; U, h, k, ε 0.5; rho 1 |
+| Решатели | p_rgh — GAMG/DIC (1e-7, relTol 0.01; Final relTol 0); U, h, k, ε — PBiCGStab/DILU (1e-8, 0.1); G — PCG/DIC (1e-6, 0.1); rho — diagonal |
+| Итерации | 3 захода: 3000 + 1500 + 1500, увязка пара между заходами (50/50) |
+| Запись | каждые 500 итераций, хранятся 2, ascii |
+| Мониторы | T на сечениях (низ газохода, перед испарителем), T выхода (по расходу), p входа, средние T/U в пучках, 22 зонда (между пучками × 3 высоты, выход, газоход у стенки/центр × 3 высоты), невязки, объёмы и центры ячеек, wallHeatFlux |
+| Время счёта | ~11–12 с/итерация на 8 ядрах (i7-9700, blueCFD/MS-MPI) → ~19–20 ч на 3 захода |
