@@ -225,3 +225,15 @@ mountvol S: /D
 | установщик не грузится | ничего не сломано: удалить пункт `bcdedit /delete`, папку `ubuntu-live`, том L:, C: → **Extend Volume** |
 | после установки сразу грузится Ubuntu без меню | Boot Menu → **Windows Boot Manager**; в Ubuntu `sudo update-grub` |
 | Windows: **Automatic Repair** | Troubleshoot → Advanced options → **Startup Repair** (может спросить ключ BitLocker) |
+
+## После установки: GNU coreutils вместо Rust (27.11.2026)
+
+В Ubuntu 26.04 базовые команды по умолчанию из `rust-coreutils` (uutils). На ПК `timeout` из него падал (SIGABRT в `__GI_kill`,
+окно «Ubuntu 26.04 has experienced an internal error»). Вернули GNU-версию:
+
+```bash
+sudo apt install --allow-remove-essential coreutils-from-gnu coreutils-from-uutils-
+```
+
+Заодно удаляется пакет-ярлык `build-essential` (в 26.04 он завязан на uutils); `gcc`, `g++`, `make` остаются.
+Проверка: `timeout --version` → `GNU coreutils 9.7`.
