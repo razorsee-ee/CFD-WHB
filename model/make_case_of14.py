@@ -49,12 +49,20 @@ ap.add_argument("--extra_air_nm3_h", type=float, default=10000.0, help="unmetere
 ap.add_argument("--extra_n2_nm3_h", type=float, default=2000.0, help="nitrogen from seals, Nm3/h")
 ap.add_argument("--o2", type=float, default=None, help="bring wet O2 up to this fraction by extra air (default: as it comes out)")
 ap.add_argument("--steam_kg_s", type=float, default=15.9, help="steam through the superheaters before sprays, kg/s (DCS: 16.17 at outlet)")
-ap.add_argument("--spray_kg_s", type=float, default=0.25, help="spray water into steam (total), kg/s; applied before SH1 (IIIb)")
+ap.add_argument("--spray_kg_s", type=float, default=0.25, help="spray water into steam (total), kg/s; split by --spray_split")
 ap.add_argument("--spray_h", type=float, default=1087.0, help="spray water enthalpy, kJ/kg (1087 = drum water at 250 C)")
 ap.add_argument("--duct_R", type=float, default=None,
                 help="deposits on the duct walls (inclined + vertical duct), m2K/W; default = wall_R")
 ap.add_argument("--wall_R", type=float, default=0.0,
                 help="thermal resistance of deposits on the membrane walls, m2K/W (0 = clean)")
+ap.add_argument("--legacy_props", action="store_true",
+                help="old gas properties and radiation wall temperature (as calibrated up to 27.11.2026), "
+                     "spray all before SH IIIb, no EVAP row correction - to reproduce the earlier runs")
+ap.add_argument("--spray_split", default="0.16,0.20,0.64",
+                help="shares of the spray before SH II, SH IIIa, SH IIIb (DCS valves ~0.04/0.05/0.09+0.07 kg/s, "
+                     "positions assumed)")
+ap.add_argument("--bundle_dp_fac", type=float, default=1.0,
+                help="factor on the bundle flow resistance (fouled bundles: estimate 1.4-3, docs/audit)")
 ap.add_argument("--bundle_fac", type=float, default=1.0,
                 help="multiplier on the gas-side htc in the bundles (fouling and uncertainty)")
 ap.add_argument("--ta", default="", help="steam temperatures SH1,SH2,SH3,SH4, C (default 413,361,312,270)")
@@ -116,7 +124,10 @@ _add_o2 = max(0.0, (a.o2 * _tot - _kmol["O2"]) / (1 - 4.76 * a.o2)) if a.o2 else
 _kmol["O2"] += _add_o2
 _kmol["N2"] += 3.76 * _add_o2
 _MW = {"N2": 28.013, "CO2": 44.01, "H2O": 18.015, "O2": 31.999}
-_CP = {"N2": 1.12, "CO2": 1.21, "H2O": 2.21, "O2": 1.06}      # kJ/(kg K) at ~650 C
+if a.legacy_props:
+    _CP = {"N2": 1.12, "CO2": 1.21, "H2O": 2.21, "O2": 1.06}      # kJ/(kg K) at ~650 C (old, ~2.5 % low)
+else:
+    _CP = {"N2": 1.158, "CO2": 1.222, "H2O": 2.260, "O2": 1.083}  # ideal-gas mean 618-750 C (CoolProp)
 KMOL_H = sum(_kmol.values())
 X_CO2, X_H2O = _kmol["CO2"] / KMOL_H, _kmol["H2O"] / KMOL_H
 _mass = {k: _kmol[k] * _MW[k] for k in _kmol}
@@ -125,9 +136,10 @@ MDOT = KMOL_H * M_GAS / 3600    # kg/s
 T_IN = 750 + 273.15            # mixed gas from the cyclones (DCS: 754 and 746 C)
 T_WALL = 250 + 273.15
 CP_GAS = round(1000 * sum(_mass[k] * _CP[k] for k in _mass) / sum(_mass.values()), 1)
-MU = 3.7e-5
-PR = 0.72
-K_GAS = 0.064                   # gas conductivity at ~650 C, W/(m K)
+if a.legacy_props:
+    MU, PR, K_GAS = 3.7e-5, 0.72, 0.064
+else:                           # mixture at ~650 C (CoolProp + Wilke, docs/audit/thermal_audit.md)
+    MU, PR, K_GAS = 3.89e-5, 0.76, 0.067
 
 # Dust passing through the bundles: share of 50 t/h (user), particles ~20 um (assumption)
 DUST_KG_H = a.dust_frac * 50000
@@ -422,14 +434,17 @@ DP_FAC, H_FAC = {"A": (1.0, 1.0), "B": (0.72, 0.71)}[a.scenario]
 H_STEAM = 600.0 * (a.steam_kg_s / 13.9) ** 0.8
 
 
-def htc_table():
-    rho = P_ABS * M_GAS / (8314.0 * (650 + 273.15))
+def htc_table(name=None):
+    Tg = 650 if (a.legacy_props or name is None) else TG_RAD[name]
+    rho = P_ABS * M_GAS / (8314.0 * (Tg + 273.15))
     nu = MU / rho
+    # Zukauskas row correction: the evaporator has only 4 rows along the flow (~0.90 for inline banks)
+    row_fac = 0.90 if (name == "EVAP" and not a.legacy_props) else 1.0
     rows = []
     for U in [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 30]:
         Re = (U / sigma) * g.D_TUBE / nu
         Nu = 0.27 * Re ** 0.63 * PR ** 0.36 if Re > 0 else 0
-        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE) * H_FAC * a.bundle_fac))
+        rows.append((U, max(5.0, Nu * K_GAS / g.D_TUBE) * H_FAC * a.bundle_fac * row_fac))
     return rows
 
 
@@ -448,7 +463,19 @@ def h_rad(name):
     L = [x1 - x0 for n, x0, x1 in g.BUNDLES if n == name][0]
     s2 = L / nt
     Lb = 1.08 * (g.S_TRANS * s2 - math.pi * g.D_TUBE ** 2 / 4) / g.D_TUBE   # mean beam length in the bundle
-    Tg, Tw = TG_RAD[name] + 273.15, TA[name] + 273.15 + (0 if name == "EVAP" else 30)
+    Tg = TG_RAD[name] + 273.15
+    if a.legacy_props:
+        Tw = TA[name] + 273.15 + (0 if name == "EVAP" else 30)
+    else:
+        # the deposit surface radiates back: its temperature from the series resistances
+        # gas -> deposit surface -> (deposit + steam side) -> steam, convection at ~5 m/s superficial
+        hc = [h for u, h in htc_table(name) if u == 5][0]
+        r_in = a.bundle_R + (0 if name == "EVAP" else 1 / H_STEAM)
+        Ts, Tw = TA[name] + 273.15, TA[name] + 273.15
+        for _ in range(30):
+            hr_ = 5.67e-8 * 0.9 * 0.5 * (Tg ** 2 + Tw ** 2) * (Tg + Tw)       # rough, for the iteration only
+            q = (Tg - Ts) / (1 / (hc + hr_) + r_in)
+            Tw = Ts + q * r_in
     eg = eps_gas(Tg, (X_CO2 + X_H2O) * P_ABS / 101325 * Lb)
     c_dust = DUST_KG_H / 3600 / (MDOT / (P_ABS * M_GAS / (8314 * Tg)))     # kg/m3 at Tg
     ed = 1 - math.exp(-1.5 * c_dust * Lb / (RHO_DUST * D_DUST))
@@ -464,7 +491,7 @@ def tab_for(name):
     """htc(U) table: convection (correlation) + gas and dust radiation, through the tube deposit;
     for the superheaters the steam-side resistance in series."""
     hr = h_rad(name)[0]
-    rows = [(u, 1 / (1 / (h + hr) + a.bundle_R)) for u, h in htc_table()]   # tube deposits
+    rows = [(u, 1 / (1 / (h + hr) + a.bundle_R)) for u, h in htc_table(name)]   # tube deposits
     if name != "EVAP":
         rows = [(u, 1 / (1 / h + 1 / H_STEAM)) for u, h in rows]
     TAB[name] = rows
@@ -476,7 +503,7 @@ for name, x0, x1 in g.BUNDLES:
     L = x1 - x0
     nt = g.TUBES[name]
     EU = EU_CORR["EVAP" if name == "EVAP" else "SH"] * DP_FAC
-    fx = nt * EU / (L * sigma ** 2)
+    fx = nt * EU / (L * sigma ** 2) * a.bundle_dp_fac
     sig_y = 1 - g.D_TUBE / (L / nt)
     fy = (1 / g.S_TRANS) * 0.3 / sig_y ** 2
     fz = 0.5
@@ -1025,6 +1052,8 @@ runApplication reconstructPar -latestTime
     f"hopper_fill {a.hopper_fill}\nabsorb {a.absorb}\nduct_R {DUCT_R}\nscenario {a.scenario}\n"
     f"RES {a.res}\nNY {a.ny}\nrefine {a.refine or '-'}:{a.refine_levels}\nZ_ASH {Z_ASH}\n"
     f"steam_kg_s {a.steam_kg_s}\nspray_kg_s {a.spray_kg_s}\nspray_h {a.spray_h}\n"
+    f"spray_split {'0,0,1' if a.legacy_props else a.spray_split}\nlegacy_props {int(a.legacy_props)}\n"
+    f"bundle_dp_fac {a.bundle_dp_fac}\n"
     f"skirts {a.skirts or '-'}\nhopper2_fill {_f2}\nextra_water_t_h {a.extra_water_t_h}\n"
     f"extra_air_nm3_h {a.extra_air_nm3_h}\nextra_n2_nm3_h {a.extra_n2_nm3_h}\nX_O2 {_kmol['O2'] / KMOL_H}\nX_H2O {X_H2O}\n"
     f"probes {','.join(n for n, _ in PROBE_LIST)}\n"

@@ -14,6 +14,8 @@ EXTRA="$*"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 PY=$(command -v python3 || command -v python)
 export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+# no core binding: two runs side by side must not share cores 0..N-1 (Open MPI binds each run from core 0)
+export OMPI_MCA_hwloc_base_binding_policy=none PRTE_MCA_hwloc_default_binding_policy=none
 . "$WM_PROJECT_DIR/bin/tools/RunFunctions"
 NY=$("$PY" -c "print(max(6, round(4.65 / (2 * $RES))))")
 

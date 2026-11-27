@@ -14,7 +14,9 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 PY=${PY:-$(command -v python3)}
 export ITERS1=${ITERS1:-3000} ITERSN=${ITERSN:-1500} GEN=make_case_of14.py
 export TA=${TA:-416.5,376,323,273.5}
-CAL="--duct_R 0.08 --wall_R 0.10 --bundle_R 0.05 --lts --lts_co 5"
+# calibration with the corrected properties (27.11.2026, 0.3 m: gas 618 C, steam 441 C, SH 8.67 MW);
+# the bypass15 series (v0-v7) was run with the old one: CAL="--duct_R 0.08 --wall_R 0.10 --bundle_R 0.05 --lts --lts_co 5 --legacy_props"
+CAL=${CAL:-"--duct_R 0.076 --wall_R 0.096 --bundle_R 0.051 --lts --lts_co 5"}
 OUT=$FOAM_RUN/${PREFIX}_summary.txt
 cd "$FOAM_RUN" || exit 1
 

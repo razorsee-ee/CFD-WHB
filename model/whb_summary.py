@@ -173,13 +173,16 @@ if Qb:
     m_s, m_sp, h_sp = F("steam_kg_s", 13.9), F("spray_kg_s", 0.0), F("spray_h", 1087.0)
     print(f"\nSuperheaters: {Q_sh / 1e6:.2f} MW   (steam {m_s:g} kg/s + spray {m_sp:g} kg/s)")
     print(f"Evaporator: {Qb['EVAP'] / 1e6:.2f} MW   Walls (remainder): {(Q_tot - sum(Qb.values())) / 1e6:.1f} MW")
-    # counterflow: steam enters SH4 (= SH I, last on the gas side); spray before SH1 (= SH IIIb)
+    # counterflow: steam enters SH4 (= SH I, last on the gas side); sprays before SH II / IIIa / IIIb
+    # (spray_split shares; older cases without it: all before SH IIIb)
+    split = dict(zip(("SH3", "SH2", "SH1"), map(float, info.get("spray_split", "0,0,1").split(","))))
     h, m = TH[0][1], m_s
     steam, mean, txt = {}, {}, []
     for n in ("SH4", "SH3", "SH2", "SH1"):
-        if n == "SH1" and m_sp > 0:
-            h = (m * h + m_sp * h_sp) / (m + m_sp)
-            m += m_sp
+        dm = m_sp * split.get(n, 0.0)
+        if dm > 0:
+            h = (m * h + dm * h_sp) / (m + dm)
+            m += dm
         T_in = T_of(h)
         h += Qb[n] / 1e3 / m
         steam[n] = (T_in, T_of(h))
