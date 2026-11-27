@@ -237,3 +237,10 @@ sudo apt install --allow-remove-essential coreutils-from-gnu coreutils-from-uuti
 
 Заодно удаляется пакет-ярлык `build-essential` (в 26.04 он завязан на uutils); `gcc`, `g++`, `make` остаются.
 Проверка: `timeout --version` → `GNU coreutils 9.7`.
+
+## Состояние ПК (27.11.2026)
+
+Ubuntu 26.04 стоит рядом с Windows, проверено: OpenFOAM-14 (`/opt/openfoam14`, `foamRun` есть), драйвер NVIDIA 595.99.02
+(RTX 2080 SUPER), раскладки us + ru, GNU coreutils, проект склонирован в `~/OpenFOAM/run/CFD-WHB`, Claude Desktop установлен.
+Осталось в Windows: удалить пункт загрузки `{58e26575-…}`, папку `S:\EFI\ubuntu-live` (папку `ubuntu` не трогать),
+том L: на HDD (+ расширить E:), вернуть файл подкачки на C:.
