@@ -26,3 +26,10 @@ cd $FOAM_RUN/cal_3 && paraFoam -builtin
 ```
 В ParaView: Properties → Case Type (Reconstructed / Decomposed) → **Apply** → кнопка `whb_1_setup` →
 дальше любые кнопки 2–5, или сразу `whb_6_screenshots`.
+
+## Открыть кейс сразу с готовым видом (без импорта макросов)
+
+```bash
+cd $FOAM_RUN/bypass15_v4_sk6_2 && paraview --script=$HOME/OpenFOAM/run/CFD-WHB/tools/paraview/open_whb.py
+```
+Разрез посередине ширины, |U| 0–15 м/с, контуры пучков, юбки/листы (зона SKIRTS) — красные прямоугольники.
